@@ -1,0 +1,8 @@
+# spike/phase0/.gitignore
+# Phase 0 spike artifacts to be excluded from Git
+
+# Disposable test worktrees and scratch directories
+.work/
+
+# Raw test logs
+.logs/
