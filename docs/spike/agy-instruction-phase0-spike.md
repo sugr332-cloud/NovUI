@@ -34,6 +34,7 @@
 * prefix/suffix範囲検査
 * Context再現性の実装
 * 独自のschema検証ロジック
+* Spike-12（GitHubリポジトリ作成の権限。Humanが手動で実施）
 
 ## 書込みの許可範囲
 
