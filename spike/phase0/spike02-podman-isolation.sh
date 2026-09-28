@@ -35,6 +35,15 @@ TIMEOUT_ISOLATION_TEST=60
 # TODO: Humanが選択（事前にpodman pullを完了させておくこと）
 CONTAINER_IMAGE="" # 例: "fedora:latest"
 
+# SELinuxラベル設定（冒頭のSELinux試験結果を見て選択。デフォルト: :z）
+# TODO: Humanが環境に合わせて確認・選択 ("", ":z", ":Z")
+MOUNT_LABEL=":z"
+
+# AGY CLI バイナリ設定（Git未マウント時の挙動観察用）
+# TODO: Spike-00の--help出力で確認してHumanが設定
+AGY_BIN="agy"
+AGY_FLAGS=""
+
 # 認証方式（Spike-11の結果に基づき設定）
 # TODO: Spike-11の結果からHumanが選択 (env / secret / ro_mount)
 AUTH_METHOD="env"
@@ -43,9 +52,7 @@ AUTH_ENV_NAME="AGY_API_KEY"
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_ROOT="${WORK_DIR}/spike02"
 rm -rf "${TEST_ROOT}"
-mkdir -p "${TEST_ROOT}"
-
-# 安全性検証: テスト対象パスが spike/phase0/.work/ 配下であることを強制
+# 使い捨てルートの安全性検証と作成
 assert_safe_work_path "${TEST_ROOT}"
 
 LOG_FILE="${LOGS_DIR}/spike02_${RUN_ID}.log"
@@ -58,56 +65,104 @@ if [[ -z "${CONTAINER_IMAGE}" ]]; then
     exit 1
 fi
 
-# 模擬テスト環境の構築（ホスト側）
-# spike/phase0/.work/ 配下に安全な模擬リポジトリと親ディレクトリを作成
+# 判定記録用連想配列
+declare -A ISOLATION_RESULTS
+
+# ------------------------------------------------------------------------------
+# 1. Bazzite固有: SELinuxラベル（なし / :z / :Z）試験（冒頭に配置）
+# ------------------------------------------------------------------------------
+echo "--- 1. SELinux Label Option Test (none vs :z vs :Z) ---" | tee -a "${LOG_FILE}"
+
+for label in "" ":z" ":Z"; do
+    label_name="${label:-none}"
+    echo "Testing SELinux label mode: ${label_name}" | tee -a "${LOG_FILE}"
+    SE_WORK="${TEST_ROOT}/selinux_${label_name}"
+    assert_safe_work_path "${SE_WORK}"
+
+    se_out=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
+        --userns=keep-id \
+        -v "${SE_WORK}:/workspace:rw${label}" \
+        -w /workspace \
+        "${CONTAINER_IMAGE}" \
+        sh -c "echo 'selinux_test' > /workspace/test.txt && echo SUCCESS || echo FAIL" 2>&1 || true)
+    
+    echo "SELinux label [${label_name}] output: ${se_out}" | tee -a "${LOG_FILE}"
+    if [[ "${se_out}" == *"SUCCESS"* ]] && [[ -f "${SE_WORK}/test.txt" ]]; then
+        ISOLATION_RESULTS["selinux_${label_name}"]="PASS(Writable)"
+    else
+        ISOLATION_RESULTS["selinux_${label_name}"]="FAIL(Blocked_or_Error)"
+    fi
+done
+
+# ------------------------------------------------------------------------------
+# 2. 模擬テスト環境の構築（ホスト側）
+# ------------------------------------------------------------------------------
 MOCK_PARENT="${TEST_ROOT}/mock_parent"
 MOCK_WORKTREE="${MOCK_PARENT}/mock_worktree"
 MOCK_GIT_COMMON="${TEST_ROOT}/mock_git_common"
-MOCK_SETTINGS_DIR="${TEST_ROOT}/mock_settings"
 
-mkdir -p "${MOCK_WORKTREE}" "${MOCK_GIT_COMMON}/hooks" "${MOCK_SETTINGS_DIR}"
+assert_safe_work_path "${MOCK_PARENT}"
+assert_safe_work_path "${MOCK_WORKTREE}"
+assert_safe_work_path "${MOCK_GIT_COMMON}/hooks"
+
 echo "[core]" > "${MOCK_GIT_COMMON}/config"
 echo "#!/bin/sh" > "${MOCK_GIT_COMMON}/hooks/pre-commit"
 chmod +x "${MOCK_GIT_COMMON}/hooks/pre-commit"
 echo "gitdir: ${MOCK_GIT_COMMON}" > "${MOCK_WORKTREE}/.git"
-echo "format_version: 0.4" > "${MOCK_SETTINGS_DIR}/project.md"
+echo "initial draft text" > "${MOCK_WORKTREE}/draft.md"
+echo "format_version: 0.4" > "${MOCK_WORKTREE}/project.md"
 
 # ------------------------------------------------------------------------------
-# 1. /proc/self/mountinfo の記録（不要なホストパス混入の検査）
+# 3. /proc/self/mountinfo の記録と意図外マウント検査
 # ------------------------------------------------------------------------------
-echo "--- 1. Recording /proc/self/mountinfo inside container ---" | tee -a "${LOG_FILE}"
+echo "--- 2. Recording and Inspecting /proc/self/mountinfo ---" | tee -a "${LOG_FILE}"
 MOUNTINFO_LOG="${LOGS_DIR}/spike02_${RUN_ID}_mountinfo.log"
 
-podman run --rm \
+timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${MOCK_WORKTREE}:/workspace:rw" \
+    -v "${MOCK_WORKTREE}:/workspace:rw${MOUNT_LABEL}" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     cat /proc/self/mountinfo > "${MOUNTINFO_LOG}" 2>&1 || true
 
 echo "mountinfo recorded to: ${MOUNTINFO_LOG}" | tee -a "${LOG_FILE}"
 
-# ------------------------------------------------------------------------------
-# 2. 書込み隔離試験（同一コンテナ設定で shell script から書込み試行）
-# ------------------------------------------------------------------------------
-echo "--- 2. Write Isolation Tests ---" | tee -a "${LOG_FILE}"
+# 意図しないホストパス（Homeやホストルート等）が露出していないか検査
+# 許可されるホストマウントは MOCK_WORKTREE のみ
+UNINTENDED_MOUNTS=""
+while IFS= read -r line; do
+    # mountinfo の形式: 5番目フィールドがコンテナ内マウントポイント
+    # 例: ... /workspace ...
+    if [[ "${line}" == *"${HOME}"* ]] && [[ "${line}" != *"${MOCK_WORKTREE}"* ]]; then
+        UNINTENDED_MOUNTS="${UNINTENDED_MOUNTS} ${line}"
+    fi
+done < "${MOUNTINFO_LOG}"
 
-# 判定記録用連想配列
-declare -A ISOLATION_RESULTS
+if [[ -z "${UNINTENDED_MOUNTS}" ]]; then
+    echo "PASS: No unintended host paths detected in mountinfo." | tee -a "${LOG_FILE}"
+    ISOLATION_RESULTS["mountinfo_inspection"]="PASS"
+else
+    echo "WARNING: Unintended host mounts detected: ${UNINTENDED_MOUNTS}" | tee -a "${LOG_FILE}"
+    ISOLATION_RESULTS["mountinfo_inspection"]="FAIL(UnintendedMountsFound)"
+fi
+
+# ------------------------------------------------------------------------------
+# 4. 書込み隔離試験（同一コンテナ設定で shell script から書込み試行）
+# ------------------------------------------------------------------------------
+echo "--- 3. Write Isolation Tests ---" | tee -a "${LOG_FILE}"
 
 run_write_test() {
     local test_name="$1"
     local container_cmd="$2"
     local extra_mounts="${3:-}"
-    local label_mode="${4:-}" # "", ":z", ":Z"
 
-    local mount_opt="-v ${MOCK_WORKTREE}:/workspace:rw${label_mode}"
+    local mount_opt="-v ${MOCK_WORKTREE}:/workspace:rw${MOUNT_LABEL}"
     if [[ -n "${extra_mounts}" ]]; then
         mount_opt="${mount_opt} ${extra_mounts}"
     fi
 
     local out
-    out=$(podman run --rm \
+    out=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
         --userns=keep-id \
         ${mount_opt} \
         -w /workspace \
@@ -134,7 +189,7 @@ else
     ISOLATION_RESULTS["parent_dir"]="FAIL(Leaked)"
 fi
 
-# (3) Homeへの書込み（コンテナ内の/rootや/homeではなく、ホストのHomeに届かないこと）
+# (3) Homeへの書込み（ホストのHomeに届かないこと）
 HOST_HOME_SENTINEL="${HOME}/.novui_spike02_sentinel_$$"
 out=$(run_write_test "Home Directory (Blocked)" "echo 'leak' > \"${HOST_HOME_SENTINEL}\" && echo LEAK || echo BLOCKED")
 if [[ ! -f "${HOST_HOME_SENTINEL}" ]]; then
@@ -162,65 +217,114 @@ else
     ISOLATION_RESULTS["git_common_unmounted"]="FAIL(Leaked)"
 fi
 
-# (6) 設定ファイルの保護試験（§43）
-# a. マウントしない構成
-out=$(run_write_test "Settings Unmounted" "echo 'leak' > /workspace/project.md && echo DONE || echo BLOCKED")
-# b. 読み取り専用(:ro)マウントの構成
-out_ro=$(run_write_test "Settings RO Mounted" "echo 'leak' > /settings/project.md && echo LEAK || echo BLOCKED" "-v ${MOCK_SETTINGS_DIR}:/settings:ro")
-if [[ "${out_ro}" == *"BLOCKED"* ]] && [[ "$(cat "${MOCK_SETTINGS_DIR}/project.md")" == "format_version: 0.4" ]]; then
-    ISOLATION_RESULTS["settings_ro_protection"]="PASS(RO_Blocked)"
+# (6) 設定ファイルの保護試験（v0.4 §43改修構成）
+# worktree全体をrwマウントした上で、設定ファイル群をro重ねマウント
+echo "--- Testing Settings Protection (§43 RO overlay on worktree) ---" | tee -a "${LOG_FILE}"
+out_settings=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
+    --userns=keep-id \
+    -v "${MOCK_WORKTREE}:/workspace:rw${MOUNT_LABEL}" \
+    -v "${MOCK_WORKTREE}/project.md:/workspace/project.md:ro${MOUNT_LABEL}" \
+    -w /workspace \
+    "${CONTAINER_IMAGE}" \
+    sh -c "
+        echo 'draft modified' > /workspace/draft.md && echo 'DRAFT_WRITE_OK' || echo 'DRAFT_WRITE_FAIL';
+        echo 'project modified' > /workspace/project.md 2>&1 && echo 'PROJECT_WRITE_LEAK' || echo 'PROJECT_RO_BLOCKED';
+    " 2>&1 || true)
+
+echo "[Settings Overlay Test] Output: ${out_settings}" | tee -a "${LOG_FILE}"
+
+DRAFT_PASS="false"
+PROJECT_PASS="false"
+if [[ "${out_settings}" == *"DRAFT_WRITE_OK"* ]] && [[ "$(cat "${MOCK_WORKTREE}/draft.md")" == "draft modified" ]]; then
+    DRAFT_PASS="true"
+fi
+if [[ "${out_settings}" == *"PROJECT_RO_BLOCKED"* ]] && [[ "$(cat "${MOCK_WORKTREE}/project.md")" == "format_version: 0.4" ]]; then
+    PROJECT_PASS="true"
+fi
+
+if [[ "${DRAFT_PASS}" == "true" && "${PROJECT_PASS}" == "true" ]]; then
+    ISOLATION_RESULTS["settings_ro_overlay"]="PASS(DraftWritable_ProjectBlocked)"
 else
-    ISOLATION_RESULTS["settings_ro_protection"]="FAIL(RO_Write_Succeeded)"
+    ISOLATION_RESULTS["settings_ro_overlay"]="FAIL(DraftPass:${DRAFT_PASS}_ProjectPass:${PROJECT_PASS})"
 fi
 
 # ------------------------------------------------------------------------------
-# 3. Bazzite固有: SELinuxラベル（なし / :z / :Z）試験
+# 5. UIDマッピング試験（--userns=keep-id の有無両方）
 # ------------------------------------------------------------------------------
-echo "--- 3. SELinux Label Option Test (none vs :z vs :Z) ---" | tee -a "${LOG_FILE}"
-
-for label in "" ":z" ":Z"; do
-    label_name="${label:-none}"
-    echo "Testing SELinux label mode: ${label_name}" | tee -a "${LOG_FILE}"
-    SE_WORK="${TEST_ROOT}/selinux_${label_name}"
-    mkdir -p "${SE_WORK}"
-    assert_safe_work_path "${SE_WORK}"
-
-    se_out=$(podman run --rm \
-        --userns=keep-id \
-        -v "${SE_WORK}:/workspace:rw${label}" \
-        -w /workspace \
-        "${CONTAINER_IMAGE}" \
-        sh -c "echo 'selinux_test' > /workspace/test.txt && echo SUCCESS || echo FAIL" 2>&1 || true)
-    
-    echo "SELinux label ${label_name} result: ${se_out}" | tee -a "${LOG_FILE}"
-done
-
-# ------------------------------------------------------------------------------
-# 4. UIDマッピング試験（--userns=keep-id の有無）
-# ------------------------------------------------------------------------------
-echo "--- 4. UID Mapping Test (--userns=keep-id check) ---" | tee -a "${LOG_FILE}"
+echo "--- 4. UID Mapping Test (keep-id vs no keep-id) ---" | tee -a "${LOG_FILE}"
 
 UID_WORK="${TEST_ROOT}/uid_check"
-mkdir -p "${UID_WORK}"
 assert_safe_work_path "${UID_WORK}"
+HOST_UID="$(id -u):$(id -g)"
 
-# keep-id あり
-podman run --rm \
+# (A) keep-id あり
+timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${UID_WORK}:/workspace:rw" \
+    -v "${UID_WORK}:/workspace:rw${MOUNT_LABEL}" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "echo 'keep-id' > /workspace/file_keepid.txt" >> "${LOG_FILE}" 2>&1 || true
 
 FILE_OWNER_KEEPID=$(stat -c '%u:%g' "${UID_WORK}/file_keepid.txt" 2>/dev/null || echo "unknown")
-HOST_UID="$(id -u):$(id -g)"
+echo "File owner with keep-id: ${FILE_OWNER_KEEPID} (host user: ${HOST_UID})" | tee -a "${LOG_FILE}"
+
+# (B) keep-id なし
+timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
+    -v "${UID_WORK}:/workspace:rw${MOUNT_LABEL}" \
+    -w /workspace \
+    "${CONTAINER_IMAGE}" \
+    sh -c "echo 'no-keep-id' > /workspace/file_nokeepid.txt" >> "${LOG_FILE}" 2>&1 || true
+
+FILE_OWNER_NOKEEPID=$(stat -c '%u:%g' "${UID_WORK}/file_nokeepid.txt" 2>/dev/null || echo "unknown")
+echo "File owner without keep-id: ${FILE_OWNER_NOKEEPID} (host user: ${HOST_UID})" | tee -a "${LOG_FILE}"
 
 if [[ "${FILE_OWNER_KEEPID}" == "${HOST_UID}" ]]; then
-    echo "PASS: file_keepid.txt is owned by host user (${FILE_OWNER_KEEPID}). Human can edit/commit." | tee -a "${LOG_FILE}"
-    ISOLATION_RESULTS["keep_id"]="PASS"
+    ISOLATION_RESULTS["uid_mapping_keepid"]="PASS(MatchesHostUID)"
 else
-    echo "WARNING: file_keepid.txt owner is ${FILE_OWNER_KEEPID} (host is ${HOST_UID})." | tee -a "${LOG_FILE}"
-    ISOLATION_RESULTS["keep_id"]="FAIL"
+    ISOLATION_RESULTS["uid_mapping_keepid"]="FAIL(OwnerMismatch:${FILE_OWNER_KEEPID})"
+fi
+ISOLATION_RESULTS["uid_mapping_nokeepid"]="RECORDED(Owner:${FILE_OWNER_NOKEEPID})"
+
+# ------------------------------------------------------------------------------
+# 6. Git common directory 未マウント状態でのAGY挙動観察
+# ------------------------------------------------------------------------------
+echo "--- 5. Observing AGY/Git behavior when Git common dir is NOT mounted ---" | tee -a "${LOG_FILE}"
+AGY_OBSERVE_WORK="${TEST_ROOT}/agy_git_observe"
+assert_safe_work_path "${AGY_OBSERVE_WORK}"
+
+# 模擬 .git 参照ファイル（参照先はコンテナ外のため存在しない）
+echo "gitdir: /nonexistent/git/common/dir" > "${AGY_OBSERVE_WORK}/.git"
+echo "initial text" > "${AGY_OBSERVE_WORK}/draft.md"
+
+DOT_GIT_HASH_BEFORE="$(get_sha256 "${AGY_OBSERVE_WORK}/.git")"
+
+# コンテナ内で git status または AGY CLI を実行し、挙動を記録
+# TODO: HumanがAGY CLIをコンテナ内で起動可能な場合はAGY CLIをテスト
+OBSERVE_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
+    --userns=keep-id \
+    -v "${AGY_OBSERVE_WORK}:/workspace:rw${MOUNT_LABEL}" \
+    -w /workspace \
+    "${CONTAINER_IMAGE}" \
+    sh -c "
+        echo '--- Checking git status behavior ---'
+        git status 2>&1 || echo 'GIT_COMMAND_FAILED_EXPECTED'
+        if command -v '${AGY_BIN}' >/dev/null 2>&1; then
+            echo '--- Testing AGY CLI in unmounted common dir ---'
+            '${AGY_BIN}' ${AGY_FLAGS} --help 2>&1 || echo 'AGY_EXEC_FAILED'
+        else
+            echo 'AGY_BIN not found inside container'
+        fi
+    " 2>&1 || true)
+
+echo "[AGY/Git Observation Output]: ${OBSERVE_OUT}" | tee -a "${LOG_FILE}"
+
+DOT_GIT_HASH_AFTER="$(get_sha256 "${AGY_OBSERVE_WORK}/.git")"
+if [[ "${DOT_GIT_HASH_BEFORE}" == "${DOT_GIT_HASH_AFTER}" ]]; then
+    echo "PASS: .git reference pointer was not altered or deleted by git commands." | tee -a "${LOG_FILE}"
+    ISOLATION_RESULTS["git_unmounted_observation"]="PASS(PointerPreserved)"
+else
+    echo "WARNING: .git reference pointer was modified or recreated!" | tee -a "${LOG_FILE}"
+    ISOLATION_RESULTS["git_unmounted_observation"]="RECORDED(PointerAltered)"
 fi
 
 # ------------------------------------------------------------------------------
@@ -245,14 +349,14 @@ write_spike_result_yaml \
     "podman_isolation_shell" \
     "podman_rootless" \
     "none" \
-    "-v worktree:rw --userns=keep-id" \
-    "podman run [write tests for 8 targets]" \
+    "-v worktree:rw${MOUNT_LABEL} --userns=keep-id" \
+    "podman run [write tests for 8 targets + settings overlay]" \
     0 \
     "spike/phase0/.logs/spike02_${RUN_ID}.log" \
     "${LOG_HASH}" \
     "${RESULT_STATUS}" \
     "${FAILURE_REASON:-none}" \
-    "none"
+    "mount_label_${MOUNT_LABEL}"
 
 echo "=== Spike-02 Completed: ${RESULT_STATUS} ===" | tee -a "${LOG_FILE}"
 echo "Result recorded at: ${RESULT_YAML}"

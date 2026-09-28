@@ -40,40 +40,60 @@ AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_WORK_DIR="${WORK_DIR}/spike01"
 rm -rf "${TEST_WORK_DIR}"
-mkdir -p "${TEST_WORK_DIR}"
+# 使い捨て作業ディレクトリの安全性検証と作成
+assert_safe_work_path "${TEST_WORK_DIR}"
 
 LOG_STDOUT="${LOGS_DIR}/spike01_${RUN_ID}_stdout.log"
 LOG_STDERR="${LOGS_DIR}/spike01_${RUN_ID}_stderr.log"
 RESULT_YAML="${RESULTS_DIR}/spike01_${RUN_ID}.yaml"
 
+# 非対話フラグ未設定時のエラー終了
+if [[ -z "${AGY_NONINTERACTIVE_FLAGS}" ]]; then
+    echo "ERROR: AGY_NONINTERACTIVE_FLAGS is not set. Please inspect Spike-00 --help output and configure non-interactive flags." >&2
+    exit 1
+fi
+
 # 追加条件2: ホスト上での隔離なし実行のため、固定の無害なプロンプトを使用
 SAFE_PROMPT="Create a file named hello.txt in the current directory with content 'Hello NovUI Spike-01'."
+SAFE_PROMPT_FILE="${TEST_WORK_DIR}/prompt.txt"
+echo "${SAFE_PROMPT}" > "${SAFE_PROMPT_FILE}"
 
 echo "=== Spike-01: AGY Non-interactive Verification Started ==="
 echo "Work directory: ${TEST_WORK_DIR}"
 
 # ------------------------------------------------------------------------------
-# テスト1: 正常実行（stdin経由のプロンプト入力、stdout/stderr分離、終了コード検査）
+# テスト1: 正常実行（stdin経由のプロンプト入力、stdout/stderr記録、終了コード検査）
 # ------------------------------------------------------------------------------
 echo "--- Test 1: Non-interactive normal execution via stdin ---"
 
-# プロンプトを標準入力から渡し、作業ディレクトリを TEST_WORK_DIR に固定して実行
-# stdout と stderr を別ファイルに分離
-START_TIME=$(date +%s)
-EXIT_CODE=0
+# CLI実行前の git status 差分検査
+GIT_SAFETY_BEFORE="$(check_git_status_safety)"
+if [[ "${GIT_SAFETY_BEFORE}" != "CLEAN" ]]; then
+    echo "WARNING: Pre-existing git status modifications detected." >&2
+fi
 
-# setsid を用いてプロセスグループを作成し、タイムアウト監視関数で実行
-(
-    cd "${TEST_WORK_DIR}"
-    # stdin経由でプロンプトを渡し、stdout/stderrを分離
-    # TODO: AGY CLIが引数でプロンプトを受け取るかstdinで受け取るかを--helpで確認
-    echo "${SAFE_PROMPT}" | "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} > "${LOG_STDOUT}" 2> "${LOG_STDERR}"
-) || EXIT_CODE=$?
+# プロンプトを標準入力から渡し、作業ディレクトリを TEST_WORK_DIR に固定して監視付き実行
+run_monitored_command \
+    "${TIMEOUT_AGY_TOTAL}" \
+    "${TIMEOUT_AGY_NO_OUTPUT}" \
+    "${LOG_STDOUT}" \
+    "${SAFE_PROMPT_FILE}" \
+    env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
 
-END_TIME=$(date +%s)
-DURATION=$((END_TIME - START_TIME))
+EXIT_CODE="${LAST_CMD_EXIT_CODE}"
+DURATION="${LAST_CMD_DURATION}"
+TIMED_OUT="${LAST_CMD_TIMED_OUT}"
+TERM_SIGNAL="${LAST_CMD_SIGNAL}"
 
-echo "Execution finished in ${DURATION}s with exit code: ${EXIT_CODE}"
+echo "Execution finished in ${DURATION}s with exit code: ${EXIT_CODE} (timed_out: ${TIMED_OUT}, signal: ${TERM_SIGNAL})"
+
+# CLI実行後の git status 差分検査
+GIT_SAFETY_AFTER="$(check_git_status_safety)"
+GIT_DIFF_PASS="true"
+if [[ "${GIT_SAFETY_AFTER}" != "CLEAN" ]]; then
+    echo "FAIL: Unintended modifications detected outside allowable areas after AGY CLI execution!" >&2
+    GIT_DIFF_PASS="false"
+fi
 
 # 成果物 hello.txt の確認
 FILE_CREATED="false"
@@ -93,7 +113,7 @@ INVALID_EXIT_CODE=0
 echo "Invalid argument exit code: ${INVALID_EXIT_CODE}"
 
 # ------------------------------------------------------------------------------
-# テスト3: 子プロセスの残存確認
+# テスト3: PGID / 子プロセスの残存確認
 # ------------------------------------------------------------------------------
 echo "--- Test 3: Residual child process check ---"
 RESIDUAL_PROCS="$(pgrep -f "${AGY_BIN}" || true)"
@@ -111,7 +131,13 @@ fi
 RESULT_STATUS="PASS"
 FAILURE_REASON=""
 
-if [[ ${EXIT_CODE} -ne 0 ]]; then
+if [[ "${GIT_DIFF_PASS}" != "true" ]]; then
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="unintended_git_diff"
+elif [[ "${TIMED_OUT}" != "none" ]]; then
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="timeout_${TIMED_OUT}"
+elif [[ ${EXIT_CODE} -ne 0 ]]; then
     RESULT_STATUS="FAIL"
     FAILURE_REASON="non_zero_exit_code_${EXIT_CODE}"
 elif [[ "${FILE_CREATED}" != "true" ]]; then
@@ -120,12 +146,13 @@ elif [[ "${FILE_CREATED}" != "true" ]]; then
 elif [[ ${INVALID_EXIT_CODE} -eq 0 ]]; then
     RESULT_STATUS="FAIL"
     FAILURE_REASON="invalid_args_did_not_fail"
+elif [[ "${PROCESS_CLEAN}" != "true" ]]; then
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="residual_processes_detected"
 fi
 
 COMBINED_LOG="${LOGS_DIR}/spike01_${RUN_ID}_combined.log"
 cat "${LOG_STDOUT}" > "${COMBINED_LOG}"
-echo -e "\n--- STDERR ---" >> "${COMBINED_LOG}"
-cat "${LOG_STDERR}" >> "${COMBINED_LOG}"
 LOG_HASH="$(get_sha256 "${COMBINED_LOG}")"
 
 write_spike_result_yaml \
@@ -141,7 +168,7 @@ write_spike_result_yaml \
     "spike/phase0/.logs/spike01_${RUN_ID}_combined.log" \
     "${LOG_HASH}" \
     "${RESULT_STATUS}" \
-    "${FAILURE_REASON}" \
+    "${FAILURE_REASON:-none}" \
     "none"
 
 echo "=== Spike-01 Completed: ${RESULT_STATUS} ==="

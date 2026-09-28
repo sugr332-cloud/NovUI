@@ -1,0 +1,45 @@
+# ==============================================================================
+# Phase 0 Spike: Containerfile
+# 
+# 目的: Spike-02（実行隔離）および Spike-11（認証受け渡し）で利用する
+#       コンテナ環境の定義。
+# 前提: 推測によるフラグやパッケージの埋め込みを避け、ベースイメージ・
+#       git導入・AGY CLI導入の手順を明示的なTODOとして整理する。
+# ビルド例:
+#   podman build -t novui-spike02:latest -f spike/phase0/Containerfile .
+# ==============================================================================
+
+# 1. ベースイメージの定義
+# TODO: HumanがSpike-00（ホスト環境確認）の結果に基づき、適切なベースイメージを指定
+# 例: fedora:latest, debian:bookworm-slim, ubuntu:24.04 等
+ARG BASE_IMAGE="fedora:latest"
+FROM ${BASE_IMAGE}
+
+# 2. 基本ツール・Gitの導入
+# TODO: 使用するディストリビューションに応じたパッケージ管理コマンドをHumanが指定
+# Fedora系の場合:
+RUN dnf install -y git procps-ng which && dnf clean all
+# Debian/Ubuntu系の場合（切り替えて使用）:
+# RUN apt-get update && apt-get install -y git procps && rm -rf /var/lib/apt/lists/*
+
+# 3. AGY CLI の導入
+# 推測で特定の手順を決め打ちせず、Humanが導入方法を選択・追記する。
+# TODO: AGY CLI のバイナリまたはパッケージ導入手順を記述
+# (A) ホストのバイナリをCOPYする場合:
+# COPY /path/to/agy /usr/local/bin/agy
+# (B) パッケージマネージャ経由でインストールする場合（npm, rpm, deb等）:
+# RUN npm install -g @example/agy-cli
+# RUN chmod +x /usr/local/bin/agy || true
+
+# 4. 作業用ディレクトリの準備
+# ホスト側worktreeをマウントするターゲット領域
+WORKDIR /workspace
+
+# 5. 実行ユーザーと環境
+# rootless Podman (--userns=keep-id) を前提としつつ、
+# 必要に応じて非rootユーザー設定をHumanが構成
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# デフォルトのシェルコマンド
+CMD ["/bin/sh"]

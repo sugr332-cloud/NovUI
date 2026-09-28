@@ -44,18 +44,21 @@ ensure_directories() {
 # ------------------------------------------------------------------------------
 assert_safe_work_path() {
     local target_path="$1"
-    local canonical_target
     local canonical_work
+    local canonical_target
 
-    mkdir -p "${target_path}"
-    canonical_target="$(cd "${target_path}" && pwd -P)"
-    canonical_work="$(cd "${WORK_DIR}" && pwd -P)"
+    canonical_work="$(realpath -m "${WORK_DIR}")"
+    canonical_target="$(realpath -m "${target_path}")"
 
-    if [[ "${canonical_target}" != "${canonical_work}"* ]]; then
+    # 厳格なプレフィックス判定（完全一致 または ${canonical_work}/ 配下）
+    if [[ "${canonical_target}" != "${canonical_work}" && "${canonical_target}" != "${canonical_work}/"* ]]; then
         echo "SECURITY ERROR: Target path '${canonical_target}' is outside '${canonical_work}'." >&2
         echo "SELinux label modification (:z / :Z) must NEVER be applied to repository root, Home, or .git." >&2
         exit 1
     fi
+
+    # 安全性確認後にディレクトリ作成
+    mkdir -p "${canonical_target}"
 }
 
 # ------------------------------------------------------------------------------
@@ -103,32 +106,41 @@ check_secret_presence() {
 }
 
 # ------------------------------------------------------------------------------
-# 6. プロセス監視付きコマンド実行（全体タイムアウト・無出力タイムアウト対応）
+# 6. プロセス監視付きコマンド実行（全体タイムアウト・無出力タイムアウト・PGID監視対応）
+#    引数: total_timeout no_output_timeout log_file stdin_file cmd...
+#    戻り値: 呼び出し元が set -e で停止しないよう常に 0 を返す。
+#            結果は LAST_CMD_EXIT_CODE, LAST_CMD_TIMED_OUT, LAST_CMD_DURATION,
+#            LAST_CMD_SIGNAL を参照すること。
 # ------------------------------------------------------------------------------
 run_monitored_command() {
     local total_timeout="$1"
     local no_output_timeout="$2"
     local log_file="$3"
-    shift 3
+    local stdin_file="$4"
+    shift 4
     local cmd=("$@")
 
     local fifo_path
     fifo_path="$(mktemp -u "${WORK_DIR}/fifo.XXXXXX")"
     mkfifo "${fifo_path}"
 
-    # コマンドをバックグラウンド（新しいプロセスグループ）で起動
-    # stdout と stderr を両方ログに書きつつ、タイムアウト監視用のfifoに送る
-    setsid "${cmd[@]}" > "${fifo_path}" 2>&1 &
-    local cmd_pid=$!
-
     # ログ書き込みバックグラウンド処理
     tee "${log_file}" < "${fifo_path}" &
     local tee_pid=$!
 
+    # コマンドをバックグラウンド（新しいセッション/プロセスグループ PGID）で起動
+    # setsid --wait により子プロセスの完了を待ち、setsidのPIDがPGIDとなる
+    if [[ -n "${stdin_file}" && -f "${stdin_file}" ]]; then
+        setsid --wait "${cmd[@]}" < "${stdin_file}" > "${fifo_path}" 2>&1 &
+    else
+        setsid --wait "${cmd[@]}" > "${fifo_path}" 2>&1 &
+    fi
+    local cmd_pid=$!
+
     local start_time
     start_time=$(date +%s)
-    local last_output_time="${start_time}"
     local timed_out="none"
+    local term_signal="none"
     local exit_code=0
 
     # 監視ループ
@@ -138,7 +150,7 @@ run_monitored_command() {
         now=$(date +%s)
 
         # 全体タイムアウト検査
-        if (( now - start_time >= total_timeout )); then
+        if [[ $((now - start_time)) -ge ${total_timeout} ]]; then
             timed_out="total_timeout"
             break
         fi
@@ -147,21 +159,28 @@ run_monitored_command() {
         if [[ -f "${log_file}" ]]; then
             local file_mod
             file_mod=$(stat -c %Y "${log_file}" 2>/dev/null || echo "${now}")
-            if (( now - file_mod >= no_output_timeout )); then
+            if [[ $((now - file_mod)) -ge ${no_output_timeout} ]]; then
                 timed_out="no_output_timeout"
                 break
             fi
         fi
     done
 
-    # タイムアウト時の強制終了処理
+    local end_time
+    end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    # タイムアウト時の強制終了処理（プロセスグループ全体へシグナル送信）
     if [[ "${timed_out}" != "none" ]]; then
-        echo -e "\n[TIMEOUT DETECTED: ${timed_out} after $((now - start_time))s. Sending SIGTERM to process group...]" >> "${log_file}"
+        term_signal="SIGTERM"
+        echo -e "\n[TIMEOUT DETECTED: ${timed_out} after ${duration}s. Sending SIGTERM to PGID -${cmd_pid}...]" >> "${log_file}"
         kill -TERM -"${cmd_pid}" 2>/dev/null || true
         sleep 2
         if kill -0 "${cmd_pid}" 2>/dev/null; then
-            echo "[Process did not terminate on SIGTERM. Sending SIGKILL to process group...]" >> "${log_file}"
+            term_signal="SIGKILL"
+            echo "[Process did not terminate on SIGTERM. Sending SIGKILL to PGID -${cmd_pid}...]" >> "${log_file}"
             kill -KILL -"${cmd_pid}" 2>/dev/null || true
+            sleep 1
         fi
     fi
 
@@ -170,16 +189,61 @@ run_monitored_command() {
     rm -f "${fifo_path}" 2>/dev/null || true
     wait "${tee_pid}" 2>/dev/null || true
 
-    # タイムアウト情報を環境変数や戻り値に設定
+    # 状態を環境変数に設定
     export LAST_CMD_TIMED_OUT="${timed_out}"
-    export LAST_CMD_DURATION=$(( $(date +%s) - start_time ))
+    export LAST_CMD_DURATION="${duration}"
+    export LAST_CMD_SIGNAL="${term_signal}"
     export LAST_CMD_EXIT_CODE="${exit_code}"
 
-    return "${exit_code}"
+    # 呼び出し元が set -e で停止しないよう return 0
+    return 0
 }
 
 # ------------------------------------------------------------------------------
-# 7. 手順書14章準拠の結果記録 YAML 出力ヘルパー
+# 7. AI CLI実行前後の git status 差分検査ヘルパー
+#    .work/, .logs/, docs/spike/results/ 以外に変更・未追跡ファイルがあれば UNSAFE を記録
+# ------------------------------------------------------------------------------
+check_git_status_safety() {
+    local repo_root="${REPO_ROOT}"
+    local diffs
+    diffs="$(git -C "${repo_root}" status --porcelain 2>/dev/null || true)"
+
+    local unsafe_diffs=()
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        # porcelain 形式: "XY path" または "XY orig -> path"
+        local file_path="${line:3}"
+        # クォートがあれば除去
+        file_path="${file_path%\"}"
+        file_path="${file_path#\"}"
+        # リネーム形式 "orig -> new" の場合は new を抽出
+        if [[ "${file_path}" == *" -> "* ]]; then
+            file_path="${file_path##* -> }"
+            file_path="${file_path%\"}"
+            file_path="${file_path#\"}"
+        fi
+
+        # 許可パスの判定: spike/phase0/.work/, spike/phase0/.logs/, docs/spike/results/
+        if [[ "${file_path}" != "spike/phase0/.work/"* && \
+              "${file_path}" != "spike/phase0/.logs/"* && \
+              "${file_path}" != "docs/spike/results/"* ]]; then
+            unsafe_diffs+=("${line}")
+        fi
+    done <<< "${diffs}"
+
+    if [[ ${#unsafe_diffs[@]} -gt 0 ]]; then
+        echo "UNSAFE_DIFF_DETECTED"
+        echo "Unintended git modifications detected outside allowable areas:" >&2
+        printf '  %s\n' "${unsafe_diffs[@]}" >&2
+        return 1
+    else
+        echo "CLEAN"
+        return 0
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 8. 手順書14章準拠の結果記録 YAML 出力ヘルパー
 # ------------------------------------------------------------------------------
 write_spike_result_yaml() {
     local output_file="$1"

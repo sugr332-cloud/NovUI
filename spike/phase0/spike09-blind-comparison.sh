@@ -51,14 +51,17 @@ INPUT_DIR="${SCRIPT_DIR}/spike09-input"
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_WORK="${WORK_DIR}/spike09"
 rm -rf "${TEST_WORK}"
-mkdir -p "${TEST_WORK}"
+# 使い捨て作業領域の安全性検証と作成
+assert_safe_work_path "${TEST_WORK}"
 
 MAPPING_FILE="${WORK_DIR}/spike09-mapping.txt"
 LOG_FILE="${LOGS_DIR}/spike09_${RUN_ID}.log"
+REMOVED_LINES_LOG="${LOGS_DIR}/spike09_${RUN_ID}_removed_lines.log"
 EVAL_SHEET="${RESULTS_DIR}/spike09_blind_evaluation_sheet_${RUN_ID}.md"
 RESULT_YAML="${RESULTS_DIR}/spike09_${RUN_ID}.yaml"
 
 echo "=== Spike-09: Blind Comparison Generation Started ===" | tee "${LOG_FILE}"
+echo "# Spike-09 Removed Lines Log (${RUN_ID})" > "${REMOVED_LINES_LOG}"
 
 # 入力ファイルの存在確認
 for req_file in outline.md plan.md world.md characters.md foreshadowing.md constraints.md; do
@@ -99,67 +102,152 @@ EOF
 
 echo "Prompt assembled successfully ($(wc -c < "${PROMPT_FILE}") bytes)." | tee -a "${LOG_FILE}"
 
+# CLI実行前の git status 差分検査
+GIT_SAFETY_BEFORE="$(check_git_status_safety)"
+if [[ "${GIT_SAFETY_BEFORE}" != "CLEAN" ]]; then
+    echo "WARNING: Pre-existing git status modifications detected." | tee -a "${LOG_FILE}"
+fi
+
 # ------------------------------------------------------------------------------
-# 1. Claude による本文生成
+# 1. Claude による本文生成（監視付き実行: 300s/120s）
 # ------------------------------------------------------------------------------
 echo "--- 1. Generating chapter with Claude CLI ---" | tee -a "${LOG_FILE}"
 RAW_CLAUDE="${TEST_WORK}/raw_claude.txt"
-CLAUDE_EXIT=0
-(
-    cat "${PROMPT_FILE}" | "${CLAUDE_BIN}" ${CLAUDE_FLAGS} > "${RAW_CLAUDE}" 2>> "${LOG_FILE}"
-) || CLAUDE_EXIT=$?
-echo "Claude generation finished with exit code: ${CLAUDE_EXIT}" | tee -a "${LOG_FILE}"
+
+run_monitored_command \
+    "${TIMEOUT_CLAUDE_TOTAL}" \
+    "${TIMEOUT_CLAUDE_NO_OUTPUT}" \
+    "${RAW_CLAUDE}" \
+    "${PROMPT_FILE}" \
+    env -C "${TEST_WORK}" "${CLAUDE_BIN}" ${CLAUDE_FLAGS}
+
+CLAUDE_EXIT="${LAST_CMD_EXIT_CODE}"
+echo "Claude generation finished with exit code: ${CLAUDE_EXIT} (timed_out: ${LAST_CMD_TIMED_OUT})" | tee -a "${LOG_FILE}"
 
 # ------------------------------------------------------------------------------
-# 2. AGY による本文生成
+# 2. AGY による本文生成（監視付き実行: 900s/180s）
 # ------------------------------------------------------------------------------
 echo "--- 2. Generating chapter with AGY CLI ---" | tee -a "${LOG_FILE}"
 RAW_AGY="${TEST_WORK}/raw_agy.txt"
-AGY_EXIT=0
-(
-    cat "${PROMPT_FILE}" | "${AGY_BIN}" ${AGY_FLAGS} > "${RAW_AGY}" 2>> "${LOG_FILE}"
-) || AGY_EXIT=$?
-echo "AGY generation finished with exit code: ${AGY_EXIT}" | tee -a "${LOG_FILE}"
+
+run_monitored_command \
+    "${TIMEOUT_AGY_TOTAL}" \
+    "${TIMEOUT_AGY_NO_OUTPUT}" \
+    "${RAW_AGY}" \
+    "${PROMPT_FILE}" \
+    env -C "${TEST_WORK}" "${AGY_BIN}" ${AGY_FLAGS}
+
+AGY_EXIT="${LAST_CMD_EXIT_CODE}"
+echo "AGY generation finished with exit code: ${AGY_EXIT} (timed_out: ${LAST_CMD_TIMED_OUT})" | tee -a "${LOG_FILE}"
+
+# CLI実行後の git status 差分検査
+GIT_SAFETY_AFTER="$(check_git_status_safety)"
+GIT_DIFF_PASS="true"
+if [[ "${GIT_SAFETY_AFTER}" != "CLEAN" ]]; then
+    echo "FAIL: Unintended modifications detected outside allowable areas after AI generation!" | tee -a "${LOG_FILE}"
+    GIT_DIFF_PASS="false"
+fi
+
+# 空出力検査
+CLAUDE_EMPTY="false"
+if [[ ! -s "${RAW_CLAUDE}" ]] || [[ -z "$(tr -d '[:space:]' < "${RAW_CLAUDE}")" ]]; then
+    CLAUDE_EMPTY="true"
+    echo "ERROR: Claude output is empty!" | tee -a "${LOG_FILE}"
+fi
+
+AGY_EMPTY="false"
+if [[ ! -s "${RAW_AGY}" ]] || [[ -z "$(tr -d '[:space:]' < "${RAW_AGY}")" ]]; then
+    AGY_EMPTY="true"
+    echo "ERROR: AGY output is empty!" | tee -a "${LOG_FILE}"
+fi
 
 # ------------------------------------------------------------------------------
-# 3. 匿名化・整形処理（モデル名や前置きの機械的除去）
+# 3. 匿名化・整形処理（先頭・末尾の挨拶とコードフェンスのみに限定、除去行をすべて記録）
 # ------------------------------------------------------------------------------
 CLEAN_CLAUDE="${TEST_WORK}/clean_claude.txt"
 CLEAN_AGY="${TEST_WORK}/clean_agy.txt"
 
-# 簡易クリーニング関数（マークダウンコードブロックや前置き行の除去）
 clean_novel_text() {
     local src="$1"
     local dst="$2"
+    local model_tag="$3"
     python3 -c "
-import re, sys
-with open(sys.argv[1], 'r', encoding='utf-8') as f:
-    text = f.read()
+import sys, re
 
-# コードフェンス除去
-text = re.sub(r'^```.*$', '', text, flags=re.MULTILINE)
+src_path = sys.argv[1]
+dst_path = sys.argv[2]
+model_tag = sys.argv[3]
+log_path = sys.argv[4]
 
-# 前置きの挨拶などを除去（行頭の典型的定型句）
-lines = text.splitlines()
+with open(src_path, 'r', encoding='utf-8') as f:
+    lines = f.readlines()
+
+removed_log = []
 cleaned_lines = []
-skip = True
-for line in lines:
-    s = line.strip()
-    if skip:
-        if any(s.startswith(p) for p in ['了解しました', '承知しました', '以下に', '第1章', '#']):
-            continue
-        if s == '':
-            continue
-        skip = False
-    cleaned_lines.append(line)
 
-with open(sys.argv[2], 'w', encoding='utf-8') as f:
-    f.write('\n'.join(cleaned_lines).strip() + '\n')
-" "${src}" "${dst}"
+# 前置きの挨拶パターン（先頭のみ）
+lead_greetings = ['了解しました', '承知しました', '承知いたしました', 'はい、', '以下に', 'お待たせしました']
+# 後置きの挨拶パターン（末尾のみ）
+trail_greetings = ['いかがでしょうか', '以上です', '執筆を終了します', 'ご参考になれば幸いです']
+
+# 先頭処理: 先頭のコードフェンスや挨拶を除去
+idx = 0
+while idx < len(lines):
+    line = lines[idx]
+    s = line.strip()
+    if s.startswith('\`\`\`'):
+        removed_log.append(f'[{model_tag}:LEADING_CODE_FENCE] {line}')
+        idx += 1
+    elif any(s.startswith(p) for p in lead_greetings):
+        removed_log.append(f'[{model_tag}:LEADING_GREETING] {line}')
+        idx += 1
+    elif s == '' and len(cleaned_lines) == 0:
+        # 本文開始前の空行
+        removed_log.append(f'[{model_tag}:LEADING_EMPTY] {line}')
+        idx += 1
+    else:
+        break
+
+# 本文本体を一旦保持
+while idx < len(lines):
+    line = lines[idx]
+    s = line.strip()
+    # 途中のコードフェンス行のみ除去（中身のテキストは保持）
+    if s.startswith('\`\`\`'):
+        removed_log.append(f'[{model_tag}:INTERNAL_CODE_FENCE] {line}')
+        idx += 1
+        continue
+    cleaned_lines.append(line)
+    idx += 1
+
+# 末尾処理: 末尾のコードフェンスや挨拶を除去
+while cleaned_lines:
+    last_line = cleaned_lines[-1]
+    s = last_line.strip()
+    if s.startswith('\`\`\`'):
+        removed_log.append(f'[{model_tag}:TRAILING_CODE_FENCE] {last_line}')
+        cleaned_lines.pop()
+    elif any(s.startswith(p) for p in trail_greetings):
+        removed_log.append(f'[{model_tag}:TRAILING_GREETING] {last_line}')
+        cleaned_lines.pop()
+    elif s == '':
+        cleaned_lines.pop()
+    else:
+        break
+
+with open(dst_path, 'w', encoding='utf-8') as f:
+    f.writelines(cleaned_lines)
+
+with open(log_path, 'a', encoding='utf-8') as f:
+    for r in removed_log:
+        f.write(r if r.endswith('\n') else r + '\n')
+" "${src}" "${dst}" "${model_tag}" "${REMOVED_LINES_LOG}"
 }
 
-clean_novel_text "${RAW_CLAUDE}" "${CLEAN_CLAUDE}"
-clean_novel_text "${RAW_AGY}" "${CLEAN_AGY}"
+clean_novel_text "${RAW_CLAUDE}" "${CLEAN_CLAUDE}" "Claude"
+clean_novel_text "${RAW_AGY}" "${CLEAN_AGY}" "AGY"
+
+echo "Text cleaned and removed lines recorded to: ${REMOVED_LINES_LOG}" | tee -a "${LOG_FILE}"
 
 # ------------------------------------------------------------------------------
 # 4. ランダムラベル割り当て（Sample A / Sample B）
@@ -270,7 +358,16 @@ LOG_HASH="$(get_sha256 "${LOG_FILE}")"
 RESULT_STATUS="PASS"
 FAILURE_REASON=""
 
-if [[ ${CLAUDE_EXIT} -ne 0 ]] || [[ ${AGY_EXIT} -ne 0 ]]; then
+if [[ "${GIT_DIFF_PASS}" != "true" ]]; then
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="unintended_git_diff"
+elif [[ "${CLAUDE_EMPTY}" == "true" ]]; then
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="empty_output_claude"
+elif [[ "${AGY_EMPTY}" == "true" ]]; then
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="empty_output_agy"
+elif [[ ${CLAUDE_EXIT} -ne 0 ]] || [[ ${AGY_EXIT} -ne 0 ]]; then
     RESULT_STATUS="FAIL"
     FAILURE_REASON="claude_exit_${CLAUDE_EXIT}_agy_exit_${AGY_EXIT}"
 fi
