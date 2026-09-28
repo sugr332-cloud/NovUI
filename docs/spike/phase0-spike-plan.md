@@ -555,6 +555,7 @@ Phase 0の結果を反映せずにController本体を実装しない。
 * AI的定型表現のController側機械検査
 * Jobごとのmodel / CLI metadata記録
 * Git競合・Human直接編集の最終仕様
+* 人間の指示入口と振り分け（v0.4 §41：instruction_routing、Job種別 range_edit / chapter_rewrite / plan_revision / setting_change）
 
 ---
 

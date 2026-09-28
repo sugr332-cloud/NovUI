@@ -740,6 +740,10 @@ large execution logs
 - output/novel.mdをCanonical管理から除外
 - フェーズごとの受入条件を追加
 
+### v0.4 追補（2026-09-28）
+
+- §41 人間の指示入口と振り分けを追加（指示バー、scope、instruction_routing、Job種別と書込み許可、FINAL章への指示）
+
 ## 40. 設計上の核心
 
 Human
@@ -758,3 +762,95 @@ Controllerはその境界を機械的に強制する。
 Humanは作品内容、設定変更、Git反映、最終版を承認する。
 
 小説本文についても、本システム自身のソースコードについても、この責務分離を基本原則とする。
+
+## 41. 追補：人間の指示入口と振り分け
+
+**ステータス：v0.4追補（2026-09-28）。v0.5で正式化する。Phase 0スパイクの対象外。**
+
+§20（選択範囲編集）と§21（Human直接編集）に加え、選択範囲より大きい単位への人間の指示を定義する。
+
+### 41.1 原則
+
+- 人間が文章で指示する相手はClaudeだけとする。AGYへ直接指示する入口は設けない。
+- Claudeは指示を実行せず、Jobへ振り分けた案を返す。Humanが承認した案だけをControllerが実行する。
+- Human直接編集（§21）は本節の対象外であり、従来どおり指示を経由せずに行える。
+
+### 41.2 指示バー
+
+UIに指示の入口を1つだけ置く（指示バー）。
+指示の対象（scope）は画面の状態から自動で決め、Humanが手動で変更できる。
+
+| scope | 自動で選ばれる条件 | 対象 |
+|---|---|---|
+| range | draft.mdで本文を選択している | 選択範囲（§20のanchor方式） |
+| chapter | 章を開いていて選択がない | 章全体 |
+| plan | outline.md / plan.mdを表示している | plan.md（outline.mdはHumanが直接編集する） |
+| setting | 手動選択、または設定ファイルを表示している | world / characters / plot / foreshadowing / rules |
+| fix | WARNING / STOPの判断中にREQUEST_FIXを選んだ | 検証結果の指摘箇所 |
+
+REQUEST_FIXには理由（指示文）を必須とする。理由のないREQUEST_FIXは受け付けない。
+
+### 41.3 Claudeによる振り分け
+
+Claudeは指示をstdoutへ構造化データとして返し、Controllerがschema検証する（§5・§26と同じ経路）。
+
+    type: instruction_routing
+    instruction_id: INS-0012
+    scope: chapter
+    chapter_id: ch-004
+    instruction: "全体的にテンポが遅い。門の場面までを短くしたい。"
+    scope_mismatch: false
+    proposed_jobs:
+      - job_type: plan_revision
+        summary: "S1を短縮し、S2の門の場面を早める"
+      - job_type: chapter_rewrite
+        summary: "改訂planに基づきS1〜S2を再執筆する"
+        depends_on: plan_revision
+    impact: []
+    questions: []
+
+- 指示が曖昧でJobを決められない場合、Claudeは `questions` を返し、Jobを提案しない。Controllerは `WAITING_HUMAN` とする。
+- UI上のscopeと実際に必要な変更の単位が異なる場合（例：選択範囲への指示だが設定変更を伴う）、Claudeは `scope_mismatch: true` とし、理由を示す。scopeを広げるかどうかはHumanが判断する。Claudeが自動でscopeを広げてはならない。
+- 設定変更を含む案では、`impact` に§16の影響範囲を列挙する。
+
+### 41.4 Job種別と書込み許可
+
+| job_type | 実行 | 書込み許可 | 章状態への影響 |
+|---|---|---|---|
+| range_edit | AGY | 対象章の `draft.md`（prefix/suffix検査付き）、`requests.md`（追記のみ） | FINAL / AI_VALIDATEDの章はDRAFTEDへ戻る |
+| chapter_rewrite | AGY | 対象章の `draft.md`（全体）、`requests.md`（追記のみ） | 実行後DRAFTED |
+| plan_revision | Claude（stdout）→ Controller | 対象章の `plan.md` | PLANNEDへ戻る（再承認が必要） |
+| setting_change | Claude（State Patch）→ Controller | Patchの `target` のみ（§15の手順） | 影響章に要確認フラグを付ける |
+| resolve_request | Controller | `requests.md`（追記のみ） | なし |
+
+- `chapter_rewrite` は、承認済みのplan（`PLAN_APPROVED`）を前提とする。`plan_revision` を伴う場合は、改訂planの承認後にのみ実行する。
+- 文章レビュー（Writing Review）の指摘をHumanが採用した場合は、`range_edit` に変換する。
+- 上記以外のファイルへの変更は§14と同様にRejectする。
+
+### 41.5 FINAL章への指示
+
+- FINAL章に `range_edit` または `chapter_rewrite` を実行した場合、章状態はDRAFTEDに戻り、Validatorと承認を再度経る。
+- その章の `summary.md` と、後続章の `summary.md` に要確認フラグを付け、Humanへ一覧を提示する。
+- 要確認フラグが残っている章は、FINALへ再遷移させない。
+
+### 41.6 承認画面
+
+Humanは振り分け案に対し「この案で実行」「破棄」を選ぶ。画面には最低限以下を表示する。
+
+- 各Jobの種別、実行者、書込み対象
+- 章状態の変化（戻り先）
+- 影響範囲（setting_change、FINAL章への指示）
+- `scope_mismatch` の有無と理由
+
+### 41.7 指示の記録
+
+- 採用された指示は、`instruction_id` と指示文をJob記録に残す。
+- 破棄された指示と、Claudeとの対話の途中経過は保存しない。
+- 保存する場合も、作品の正本（Canonical）には含めない。
+
+### 41.8 v0.5での確定事項
+
+- instruction_routingのschema
+- chapter_rewriteの範囲指定（章全体か、シーン単位か）
+- 要確認フラグの保存場所と解除条件
+- 同一章への指示が連続した場合のJobの扱い（キュー、統合、却下）
