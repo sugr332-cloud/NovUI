@@ -294,6 +294,8 @@ AGYの実行と**同一のコンテナ設定**（mount、ユーザー、SELinux�
 7. `.git/config`
 8. `.git/hooks/`
 
+設定ファイル（v0.4 §43の保護対象）をマウントしない構成と、読み取り専用でマウントする構成の両方で、書込みが失敗することも確認する。
+
 加えて、コンテナ内の `/proc/self/mountinfo` を記録し、**意図したmount以外にホストのパスが存在しない**ことを確認する。
 
 `/tmp` 等のコンテナ内ローカル領域への書込みは、ホストのパスに反映されない限り許容する。判定基準は「ホスト上の、worktree外のパスが変化しないこと」とする。
@@ -557,6 +559,7 @@ Phase 0の結果を反映せずにController本体を実装しない。
 * Git競合・Human直接編集の最終仕様
 * 人間の指示入口と振り分け（v0.4 §41：instruction_routing、Job種別 range_edit / chapter_rewrite / plan_revision / setting_change）
 * Human直接編集と添削（v0.4 §42：表記修正／内容変更、mainへのcommitとロック、赤入れ）
+* 設定ファイルの保護（v0.4 §43：承認記録、Approval-Id、mainへのcommit検査）
 
 ---
 
