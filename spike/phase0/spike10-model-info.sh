@@ -35,7 +35,9 @@ TIMEOUT_CLAUDE_NO_OUTPUT=120
 # CLIバイナリ
 # TODO: Spike-00の--help出力で確認してHumanが設定
 AGY_BIN="agy"
+AGY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
 CLAUDE_BIN="claude"
+CLAUDE_READONLY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --tools "" 等)
 
 # モデル情報取得用フラグ（もしCLIに専用フラグが存在する場合）
 # TODO: Spike-00の--help出力を参照
@@ -52,6 +54,17 @@ LOG_FILE="${LOGS_DIR}/spike10_${RUN_ID}.log"
 RESULT_YAML="${RESULTS_DIR}/spike10_${RUN_ID}.yaml"
 
 echo "=== Spike-10: Model Information Inspection Started ===" | tee "${LOG_FILE}"
+
+# フラグ変数空チェック（修正E）
+if [[ -z "${AGY_FLAGS}" ]]; then
+    echo "ERROR: AGY_FLAGS is not set. Please inspect Spike-00 --help output and configure non-interactive flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
+
+if [[ -z "${CLAUDE_READONLY_FLAGS}" ]]; then
+    echo "ERROR: CLAUDE_READONLY_FLAGS is not set. Please inspect Spike-00 --help output and configure read-only flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
 
 # CLI実行前の git status 差分検査
 GIT_SAFETY_BEFORE="$(check_git_status_safety)"
@@ -78,13 +91,28 @@ fi
 echo "AGY Raw Output: ${AGY_RAW_INFO}" | tee -a "${LOG_FILE}"
 echo "AGY Reported Model (CLI Metadata): ${AGY_REPORTED_MODEL}" | tee -a "${LOG_FILE}"
 
-# 実行時プロンプトによるモデル名自己申告テスト（self_reportとして分離記録）
+# 実行時プロンプトによるモデル名自己申告テスト（使い捨て作業ディレクトリで run_monitored_command を通して実行）
 echo "Testing AGY model self-report query (separated from CLI metadata)..." | tee -a "${LOG_FILE}"
-AGY_SELF_REPORT=""
+AGY_SELF_REPORT="not_available"
 if command -v "${AGY_BIN}" >/dev/null 2>&1; then
-    AGY_SELF_REPORT="$(echo "Reply with your exact model name and version only." | "${AGY_BIN}" 2>&1 || echo "query_failed")"
+    AGY_PROMPT_FILE="${TEST_WORK_DIR}/prompt_agy_model.txt"
+    echo "Reply with your exact model name and version only." > "${AGY_PROMPT_FILE}"
+    AGY_SELF_OUT="${TEST_WORK_DIR}/agy_self_report_out.log"
+    AGY_SELF_ERR="${TEST_WORK_DIR}/agy_self_report_err.log"
+
+    run_monitored_command \
+        "${TIMEOUT_AGY_TOTAL}" \
+        "${TIMEOUT_AGY_NO_OUTPUT}" \
+        "${AGY_SELF_OUT}" \
+        "${AGY_SELF_ERR}" \
+        "${AGY_PROMPT_FILE}" \
+        env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_FLAGS}
+
+    if [[ -f "${AGY_SELF_OUT}" ]]; then
+        AGY_SELF_REPORT="$(cat "${AGY_SELF_OUT}")"
+    fi
 else
-    AGY_SELF_REPORT="skipped"
+    AGY_SELF_REPORT="skipped(cli_not_found)"
 fi
 echo "AGY Self Report (Human/Prompt response): ${AGY_SELF_REPORT}" | tee -a "${LOG_FILE}"
 
@@ -106,13 +134,28 @@ fi
 echo "Claude Raw Output: ${CLAUDE_RAW_INFO}" | tee -a "${LOG_FILE}"
 echo "Claude Reported Model (CLI Metadata): ${CLAUDE_REPORTED_MODEL}" | tee -a "${LOG_FILE}"
 
-# 実行時プロンプトによるモデル名自己申告テスト（self_reportとして分離記録）
+# 実行時プロンプトによるモデル名自己申告テスト（使い捨て作業ディレクトリで run_monitored_command を通して実行）
 echo "Testing Claude model self-report query (separated from CLI metadata)..." | tee -a "${LOG_FILE}"
-CLAUDE_SELF_REPORT=""
+CLAUDE_SELF_REPORT="not_available"
 if command -v "${CLAUDE_BIN}" >/dev/null 2>&1; then
-    CLAUDE_SELF_REPORT="$(echo "Reply with your exact model name and version only." | "${CLAUDE_BIN}" 2>&1 || echo "query_failed")"
+    CLAUDE_PROMPT_FILE="${TEST_WORK_DIR}/prompt_claude_model.txt"
+    echo "Reply with your exact model name and version only." > "${CLAUDE_PROMPT_FILE}"
+    CLAUDE_SELF_OUT="${TEST_WORK_DIR}/claude_self_report_out.log"
+    CLAUDE_SELF_ERR="${TEST_WORK_DIR}/claude_self_report_err.log"
+
+    run_monitored_command \
+        "${TIMEOUT_CLAUDE_TOTAL}" \
+        "${TIMEOUT_CLAUDE_NO_OUTPUT}" \
+        "${CLAUDE_SELF_OUT}" \
+        "${CLAUDE_SELF_ERR}" \
+        "${CLAUDE_PROMPT_FILE}" \
+        env -C "${TEST_WORK_DIR}" "${CLAUDE_BIN}" ${CLAUDE_READONLY_FLAGS}
+
+    if [[ -f "${CLAUDE_SELF_OUT}" ]]; then
+        CLAUDE_SELF_REPORT="$(cat "${CLAUDE_SELF_OUT}")"
+    fi
 else
-    CLAUDE_SELF_REPORT="skipped"
+    CLAUDE_SELF_REPORT="skipped(cli_not_found)"
 fi
 echo "Claude Self Report (Human/Prompt response): ${CLAUDE_SELF_REPORT}" | tee -a "${LOG_FILE}"
 

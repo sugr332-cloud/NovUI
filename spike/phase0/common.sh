@@ -62,6 +62,41 @@ assert_safe_work_path() {
 }
 
 # ------------------------------------------------------------------------------
+# 3.1 ワーク領域内ファイルの安全性検証（ディレクトリ作成は行わない）
+# ------------------------------------------------------------------------------
+assert_safe_work_file() {
+    local target_file="$1"
+    local canonical_work
+    local canonical_target
+
+    canonical_work="$(realpath -m "${WORK_DIR}")"
+    canonical_target="$(realpath -m "${target_file}")"
+
+    # 厳格なプレフィックス判定（${canonical_work}/ 配下）
+    if [[ "${canonical_target}" != "${canonical_work}/"* ]]; then
+        echo "SECURITY ERROR: Target file '${canonical_target}' is outside '${canonical_work}'." >&2
+        echo "Target file must be strictly inside spike/phase0/.work/." >&2
+        exit 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 3.2 マウントオプション組み立て共通関数
+# ------------------------------------------------------------------------------
+# MOUNT_LABEL は "z" または "Z" または ""（ラベルなし）
+MOUNT_LABEL="Z"  # TODO: Spike-02の結果で確定
+
+mount_opts() {
+    local mode="$1" # rw または ro
+    local label="${2:-${MOUNT_LABEL}}"
+    if [[ -n "${label}" ]]; then
+        echo "${mode},${label}"
+    else
+        echo "${mode}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # 4. SHA-256 ハッシュ取得
 # ------------------------------------------------------------------------------
 get_sha256() {
@@ -107,33 +142,38 @@ check_secret_presence() {
 
 # ------------------------------------------------------------------------------
 # 6. プロセス監視付きコマンド実行（全体タイムアウト・無出力タイムアウト・PGID監視対応）
-#    引数: total_timeout no_output_timeout log_file stdin_file cmd...
+#    引数: total_timeout no_output_timeout stdout_log stderr_log stdin_file cmd...
 #    戻り値: 呼び出し元が set -e で停止しないよう常に 0 を返す。
-#            結果は LAST_CMD_EXIT_CODE, LAST_CMD_TIMED_OUT, LAST_CMD_DURATION,
-#            LAST_CMD_SIGNAL を参照すること。
+#            結果は LAST_CMD_PGID, LAST_CMD_EXIT_CODE, LAST_CMD_TIMED_OUT,
+#            LAST_CMD_DURATION, LAST_CMD_SIGNAL を参照すること。
 # ------------------------------------------------------------------------------
 run_monitored_command() {
     local total_timeout="$1"
     local no_output_timeout="$2"
-    local log_file="$3"
-    local stdin_file="$4"
-    shift 4
+    local stdout_log="$3"
+    local stderr_log="$4"
+    local stdin_file="$5"
+    shift 5
     local cmd=("$@")
 
-    local fifo_path
-    fifo_path="$(mktemp -u "${WORK_DIR}/fifo.XXXXXX")"
-    mkfifo "${fifo_path}"
+    local fifo_out fifo_err
+    fifo_out="$(mktemp -u "${WORK_DIR}/fifo_out.XXXXXX")"
+    fifo_err="$(mktemp -u "${WORK_DIR}/fifo_err.XXXXXX")"
+    mkfifo "${fifo_out}"
+    mkfifo "${fifo_err}"
 
-    # ログ書き込みバックグラウンド処理
-    tee "${log_file}" < "${fifo_path}" &
-    local tee_pid=$!
+    # stdout / stderr バックグラウンド書き込み処理
+    tee "${stdout_log}" < "${fifo_out}" &
+    local tee_out_pid=$!
+    tee "${stderr_log}" < "${fifo_err}" >&2 &
+    local tee_err_pid=$!
 
     # コマンドをバックグラウンド（新しいセッション/プロセスグループ PGID）で起動
     # setsid --wait により子プロセスの完了を待ち、setsidのPIDがPGIDとなる
     if [[ -n "${stdin_file}" && -f "${stdin_file}" ]]; then
-        setsid --wait "${cmd[@]}" < "${stdin_file}" > "${fifo_path}" 2>&1 &
+        setsid --wait "${cmd[@]}" < "${stdin_file}" > "${fifo_out}" 2> "${fifo_err}" &
     else
-        setsid --wait "${cmd[@]}" > "${fifo_path}" 2>&1 &
+        setsid --wait "${cmd[@]}" > "${fifo_out}" 2> "${fifo_err}" &
     fi
     local cmd_pid=$!
 
@@ -155,14 +195,14 @@ run_monitored_command() {
             break
         fi
 
-        # ログファイルの更新時刻で無出力タイムアウト検査
-        if [[ -f "${log_file}" ]]; then
-            local file_mod
-            file_mod=$(stat -c %Y "${log_file}" 2>/dev/null || echo "${now}")
-            if [[ $((now - file_mod)) -ge ${no_output_timeout} ]]; then
-                timed_out="no_output_timeout"
-                break
-            fi
+        # stdout / stderr の最新更新時刻で無出力タイムアウト検査
+        local out_mod err_mod latest_mod
+        out_mod=$(stat -c %Y "${stdout_log}" 2>/dev/null || echo "${now}")
+        err_mod=$(stat -c %Y "${stderr_log}" 2>/dev/null || echo "${now}")
+        latest_mod=$(( out_mod > err_mod ? out_mod : err_mod ))
+        if [[ $((now - latest_mod)) -ge ${no_output_timeout} ]]; then
+            timed_out="no_output_timeout"
+            break
         fi
     done
 
@@ -173,12 +213,12 @@ run_monitored_command() {
     # タイムアウト時の強制終了処理（プロセスグループ全体へシグナル送信）
     if [[ "${timed_out}" != "none" ]]; then
         term_signal="SIGTERM"
-        echo -e "\n[TIMEOUT DETECTED: ${timed_out} after ${duration}s. Sending SIGTERM to PGID -${cmd_pid}...]" >> "${log_file}"
+        echo -e "\n[TIMEOUT DETECTED: ${timed_out} after ${duration}s. Sending SIGTERM to PGID -${cmd_pid}...]" >> "${stderr_log}"
         kill -TERM -"${cmd_pid}" 2>/dev/null || true
         sleep 2
         if kill -0 "${cmd_pid}" 2>/dev/null; then
             term_signal="SIGKILL"
-            echo "[Process did not terminate on SIGTERM. Sending SIGKILL to PGID -${cmd_pid}...]" >> "${log_file}"
+            echo "[Process did not terminate on SIGTERM. Sending SIGKILL to PGID -${cmd_pid}...]" >> "${stderr_log}"
             kill -KILL -"${cmd_pid}" 2>/dev/null || true
             sleep 1
         fi
@@ -186,10 +226,12 @@ run_monitored_command() {
 
     # プロセスの終了待ち
     wait "${cmd_pid}" 2>/dev/null || exit_code=$?
-    rm -f "${fifo_path}" 2>/dev/null || true
-    wait "${tee_pid}" 2>/dev/null || true
+    rm -f "${fifo_out}" "${fifo_err}" 2>/dev/null || true
+    wait "${tee_out_pid}" 2>/dev/null || true
+    wait "${tee_err_pid}" 2>/dev/null || true
 
     # 状態を環境変数に設定
+    export LAST_CMD_PGID="${cmd_pid}"
     export LAST_CMD_TIMED_OUT="${timed_out}"
     export LAST_CMD_DURATION="${duration}"
     export LAST_CMD_SIGNAL="${term_signal}"
@@ -206,7 +248,7 @@ run_monitored_command() {
 check_git_status_safety() {
     local repo_root="${REPO_ROOT}"
     local diffs
-    diffs="$(git -C "${repo_root}" status --porcelain 2>/dev/null || true)"
+    diffs="$(git -C "${repo_root}" status --porcelain --untracked-files=all 2>/dev/null || true)"
 
     local unsafe_diffs=()
     while IFS= read -r line; do
@@ -235,7 +277,7 @@ check_git_status_safety() {
         echo "UNSAFE_DIFF_DETECTED"
         echo "Unintended git modifications detected outside allowable areas:" >&2
         printf '  %s\n' "${unsafe_diffs[@]}" >&2
-        return 1
+        return 0
     else
         echo "CLEAN"
         return 0

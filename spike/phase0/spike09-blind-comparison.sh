@@ -44,7 +44,7 @@ AGY_BIN="agy"
 AGY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
 
 CLAUDE_BIN="claude"
-CLAUDE_FLAGS="" # TODO: Spike-00の--help出力で確認
+CLAUDE_READONLY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --tools "" 等)
 
 INPUT_DIR="${SCRIPT_DIR}/spike09-input"
 
@@ -62,6 +62,17 @@ RESULT_YAML="${RESULTS_DIR}/spike09_${RUN_ID}.yaml"
 
 echo "=== Spike-09: Blind Comparison Generation Started ===" | tee "${LOG_FILE}"
 echo "# Spike-09 Removed Lines Log (${RUN_ID})" > "${REMOVED_LINES_LOG}"
+
+# フラグ変数空チェック（修正E）
+if [[ -z "${AGY_FLAGS}" ]]; then
+    echo "ERROR: AGY_FLAGS is not set. Please inspect Spike-00 --help output and configure non-interactive flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
+
+if [[ -z "${CLAUDE_READONLY_FLAGS}" ]]; then
+    echo "ERROR: CLAUDE_READONLY_FLAGS is not set. Please inspect Spike-00 --help output and configure read-only flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
 
 # 入力ファイルの存在確認
 for req_file in outline.md plan.md world.md characters.md foreshadowing.md constraints.md; do
@@ -113,13 +124,15 @@ fi
 # ------------------------------------------------------------------------------
 echo "--- 1. Generating chapter with Claude CLI ---" | tee -a "${LOG_FILE}"
 RAW_CLAUDE="${TEST_WORK}/raw_claude.txt"
+RAW_CLAUDE_ERR="${TEST_WORK}/raw_claude_err.log"
 
 run_monitored_command \
     "${TIMEOUT_CLAUDE_TOTAL}" \
     "${TIMEOUT_CLAUDE_NO_OUTPUT}" \
     "${RAW_CLAUDE}" \
+    "${RAW_CLAUDE_ERR}" \
     "${PROMPT_FILE}" \
-    env -C "${TEST_WORK}" "${CLAUDE_BIN}" ${CLAUDE_FLAGS}
+    env -C "${TEST_WORK}" "${CLAUDE_BIN}" ${CLAUDE_READONLY_FLAGS}
 
 CLAUDE_EXIT="${LAST_CMD_EXIT_CODE}"
 echo "Claude generation finished with exit code: ${CLAUDE_EXIT} (timed_out: ${LAST_CMD_TIMED_OUT})" | tee -a "${LOG_FILE}"
@@ -129,11 +142,13 @@ echo "Claude generation finished with exit code: ${CLAUDE_EXIT} (timed_out: ${LA
 # ------------------------------------------------------------------------------
 echo "--- 2. Generating chapter with AGY CLI ---" | tee -a "${LOG_FILE}"
 RAW_AGY="${TEST_WORK}/raw_agy.txt"
+RAW_AGY_ERR="${TEST_WORK}/raw_agy_err.log"
 
 run_monitored_command \
     "${TIMEOUT_AGY_TOTAL}" \
     "${TIMEOUT_AGY_NO_OUTPUT}" \
     "${RAW_AGY}" \
+    "${RAW_AGY_ERR}" \
     "${PROMPT_FILE}" \
     env -C "${TEST_WORK}" "${AGY_BIN}" ${AGY_FLAGS}
 

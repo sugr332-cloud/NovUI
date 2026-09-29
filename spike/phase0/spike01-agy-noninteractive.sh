@@ -77,6 +77,7 @@ run_monitored_command \
     "${TIMEOUT_AGY_TOTAL}" \
     "${TIMEOUT_AGY_NO_OUTPUT}" \
     "${LOG_STDOUT}" \
+    "${LOG_STDERR}" \
     "${SAFE_PROMPT_FILE}" \
     env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
 
@@ -84,8 +85,9 @@ EXIT_CODE="${LAST_CMD_EXIT_CODE}"
 DURATION="${LAST_CMD_DURATION}"
 TIMED_OUT="${LAST_CMD_TIMED_OUT}"
 TERM_SIGNAL="${LAST_CMD_SIGNAL}"
+PGID="${LAST_CMD_PGID}"
 
-echo "Execution finished in ${DURATION}s with exit code: ${EXIT_CODE} (timed_out: ${TIMED_OUT}, signal: ${TERM_SIGNAL})"
+echo "Execution finished in ${DURATION}s with exit code: ${EXIT_CODE} (timed_out: ${TIMED_OUT}, signal: ${TERM_SIGNAL}, PGID: ${PGID})"
 
 # CLI実行後の git status 差分検査
 GIT_SAFETY_AFTER="$(check_git_status_safety)"
@@ -116,12 +118,12 @@ echo "Invalid argument exit code: ${INVALID_EXIT_CODE}"
 # テスト3: PGID / 子プロセスの残存確認
 # ------------------------------------------------------------------------------
 echo "--- Test 3: Residual child process check ---"
-RESIDUAL_PROCS="$(pgrep -f "${AGY_BIN}" || true)"
-if [[ -z "${RESIDUAL_PROCS}" ]]; then
-    echo "PASS: No residual AGY processes found."
+RESIDUAL_PROCS="$(ps -o pid= -g "${PGID}" 2>/dev/null || true)"
+if [[ -z "${RESIDUAL_PROCS//[[:space:]]/}" ]]; then
+    echo "PASS: No residual processes found for PGID ${PGID}."
     PROCESS_CLEAN="true"
 else
-    echo "WARNING: Possible residual processes detected: ${RESIDUAL_PROCS}"
+    echo "WARNING: Possible residual processes detected for PGID ${PGID}: ${RESIDUAL_PROCS}"
     PROCESS_CLEAN="false"
 fi
 
@@ -152,7 +154,7 @@ elif [[ "${PROCESS_CLEAN}" != "true" ]]; then
 fi
 
 COMBINED_LOG="${LOGS_DIR}/spike01_${RUN_ID}_combined.log"
-cat "${LOG_STDOUT}" > "${COMBINED_LOG}"
+cat "${LOG_STDOUT}" "${LOG_STDERR}" > "${COMBINED_LOG}"
 LOG_HASH="$(get_sha256 "${COMBINED_LOG}")"
 
 write_spike_result_yaml \

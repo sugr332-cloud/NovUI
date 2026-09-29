@@ -61,6 +61,11 @@ if [[ -z "${CLAUDE_READONLY_FLAGS}" ]]; then
     exit 1
 fi
 
+if [[ -z "${CLAUDE_JSON_FLAGS}" ]]; then
+    echo "ERROR: CLAUDE_JSON_FLAGS is not set. Please inspect Spike-00 --help output and configure JSON flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
+
 # ------------------------------------------------------------------------------
 # 追加条件3: python3 および jsonschema ライブラリの存在検査
 # ------------------------------------------------------------------------------
@@ -99,6 +104,7 @@ RO_PROMPT_FILE="${RO_TEST_DIR}/prompt_force_write.txt"
 echo "${PROMPT_FORCE_WRITE}" > "${RO_PROMPT_FILE}"
 
 RO_OUT="${TEST_ROOT}/ro_output.log"
+RO_OUT_ERR="${TEST_ROOT}/ro_output_err.log"
 
 # CLI実行前の git status 差分検査
 GIT_SAFETY_BEFORE="$(check_git_status_safety)"
@@ -111,6 +117,7 @@ run_monitored_command \
     "${TIMEOUT_CLAUDE_TOTAL}" \
     "${TIMEOUT_CLAUDE_NO_OUTPUT}" \
     "${RO_OUT}" \
+    "${RO_OUT_ERR}" \
     "${RO_PROMPT_FILE}" \
     env -C "${RO_TEST_DIR}" "${CLAUDE_BIN}" ${CLAUDE_READONLY_FLAGS}
 
@@ -234,14 +241,16 @@ PYEOF
 for i in $(seq 1 "${COUNT_TOTAL}"); do
     echo "Running iteration ${i}/${COUNT_TOTAL}..." | tee -a "${LOG_FILE}"
     OUT_FILE="${ITERATION_DIR}/run_${i}.txt"
+    ERR_FILE="${ITERATION_DIR}/run_${i}_err.txt"
 
     # Claude CLI 監視付き実行（全体300s, 無出力120s）
     run_monitored_command \
         "${TIMEOUT_CLAUDE_TOTAL}" \
         "${TIMEOUT_CLAUDE_NO_OUTPUT}" \
         "${OUT_FILE}" \
+        "${ERR_FILE}" \
         "${STRUCT_PROMPT_FILE}" \
-        env -C "${ITERATION_DIR}" "${CLAUDE_BIN}" ${CLAUDE_JSON_FLAGS}
+        env -C "${ITERATION_DIR}" "${CLAUDE_BIN}" ${CLAUDE_READONLY_FLAGS} ${CLAUDE_JSON_FLAGS}
 
     # Pythonによる判定
     ANALYSIS="$(python3 "${VALIDATOR_PY}" "${SCHEMA_FILE}" "${OUT_FILE}")"

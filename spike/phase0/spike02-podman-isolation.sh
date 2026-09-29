@@ -35,14 +35,14 @@ TIMEOUT_ISOLATION_TEST=60
 # TODO: Humanが選択（事前にpodman pullを完了させておくこと）
 CONTAINER_IMAGE="" # 例: "fedora:latest"
 
-# SELinuxラベル設定（冒頭のSELinux試験結果を見て選択。デフォルト: :z）
-# TODO: Humanが環境に合わせて確認・選択 ("", ":z", ":Z")
-MOUNT_LABEL=":z"
+# SELinuxラベル設定（既定値は "Z"、"z" または "Z" または ""）
+# TODO: Spike-02の結果で確定
+MOUNT_LABEL="Z"
 
 # AGY CLI バイナリ設定（Git未マウント時の挙動観察用）
 # TODO: Spike-00の--help出力で確認してHumanが設定
 AGY_BIN="agy"
-AGY_FLAGS=""
+AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
 
 # 認証方式（Spike-11の結果に基づき設定）
 # TODO: Spike-11の結果からHumanが選択 (env / secret / ro_mount)
@@ -65,6 +65,11 @@ if [[ -z "${CONTAINER_IMAGE}" ]]; then
     exit 1
 fi
 
+if [[ -z "${AGY_NONINTERACTIVE_FLAGS}" ]]; then
+    echo "ERROR: AGY_NONINTERACTIVE_FLAGS is not set. Please inspect Spike-00 --help output and configure non-interactive flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
+
 # 判定記録用連想配列
 declare -A ISOLATION_RESULTS
 
@@ -73,15 +78,16 @@ declare -A ISOLATION_RESULTS
 # ------------------------------------------------------------------------------
 echo "--- 1. SELinux Label Option Test (none vs :z vs :Z) ---" | tee -a "${LOG_FILE}"
 
-for label in "" ":z" ":Z"; do
+for label in "" "z" "Z"; do
     label_name="${label:-none}"
     echo "Testing SELinux label mode: ${label_name}" | tee -a "${LOG_FILE}"
     SE_WORK="${TEST_ROOT}/selinux_${label_name}"
     assert_safe_work_path "${SE_WORK}"
 
+    se_opt="$(mount_opts rw "${label}")"
     se_out=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
         --userns=keep-id \
-        -v "${SE_WORK}:/workspace:rw${label}" \
+        -v "${SE_WORK}:/workspace:${se_opt}" \
         -w /workspace \
         "${CONTAINER_IMAGE}" \
         sh -c "echo 'selinux_test' > /workspace/test.txt && echo SUCCESS || echo FAIL" 2>&1 || true)
@@ -109,8 +115,17 @@ echo "[core]" > "${MOCK_GIT_COMMON}/config"
 echo "#!/bin/sh" > "${MOCK_GIT_COMMON}/hooks/pre-commit"
 chmod +x "${MOCK_GIT_COMMON}/hooks/pre-commit"
 echo "gitdir: ${MOCK_GIT_COMMON}" > "${MOCK_WORKTREE}/.git"
-echo "initial draft text" > "${MOCK_WORKTREE}/draft.md"
+
+# 設定ファイルおよびディレクトリ群の作成（修正G）
+mkdir -p "${MOCK_WORKTREE}/world" "${MOCK_WORKTREE}/characters" "${MOCK_WORKTREE}/plot" "${MOCK_WORKTREE}/foreshadowing" "${MOCK_WORKTREE}/rules" "${MOCK_WORKTREE}/chapters/ch-001"
+echo "world_setting" > "${MOCK_WORKTREE}/world/world.md"
+echo "character_setting" > "${MOCK_WORKTREE}/characters/chara.md"
+echo "plot_setting" > "${MOCK_WORKTREE}/plot/plot.md"
+echo "foreshadowing_setting" > "${MOCK_WORKTREE}/foreshadowing/fs.md"
+echo "rules_setting" > "${MOCK_WORKTREE}/rules/rules.md"
 echo "format_version: 0.4" > "${MOCK_WORKTREE}/project.md"
+echo "order_info" > "${MOCK_WORKTREE}/chapters-order.md"
+echo "initial draft text" > "${MOCK_WORKTREE}/chapters/ch-001/draft.md"
 
 # ------------------------------------------------------------------------------
 # 3. /proc/self/mountinfo の記録と意図外マウント検査
@@ -118,9 +133,10 @@ echo "format_version: 0.4" > "${MOCK_WORKTREE}/project.md"
 echo "--- 2. Recording and Inspecting /proc/self/mountinfo ---" | tee -a "${LOG_FILE}"
 MOUNTINFO_LOG="${LOGS_DIR}/spike02_${RUN_ID}_mountinfo.log"
 
+assert_safe_work_path "${MOCK_WORKTREE}"
 timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${MOCK_WORKTREE}:/workspace:rw${MOUNT_LABEL}" \
+    -v "${MOCK_WORKTREE}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     cat /proc/self/mountinfo > "${MOUNTINFO_LOG}" 2>&1 || true
@@ -156,7 +172,8 @@ run_write_test() {
     local container_cmd="$2"
     local extra_mounts="${3:-}"
 
-    local mount_opt="-v ${MOCK_WORKTREE}:/workspace:rw${MOUNT_LABEL}"
+    assert_safe_work_path "${MOCK_WORKTREE}"
+    local mount_opt="-v ${MOCK_WORKTREE}:/workspace:$(mount_opts rw)"
     if [[ -n "${extra_mounts}" ]]; then
         mount_opt="${mount_opt} ${extra_mounts}"
     fi
@@ -200,12 +217,12 @@ else
 fi
 
 # (4) /tmp への書込み（ホストの /tmp に影響しないこと）
-HOST_TMP_SENTINEL="/tmp/novui_spike02_sentinel_$$"
-out=$(run_write_test "Host /tmp (Isolated)" "echo 'local_tmp' > /tmp/test_tmp.txt && echo DONE")
-if [[ ! -f "${HOST_TMP_SENTINEL}" ]]; then
+CONTAINER_TMP_TEST="/tmp/novui_spike02_test_$$.txt"
+out=$(run_write_test "Host /tmp (Isolated)" "echo 'local_tmp' > \"${CONTAINER_TMP_TEST}\" && echo DONE")
+if [[ ! -f "${CONTAINER_TMP_TEST}" ]]; then
     ISOLATION_RESULTS["tmp_isolated"]="PASS(Isolated)"
 else
-    rm -f "${HOST_TMP_SENTINEL}"
+    rm -f "${CONTAINER_TMP_TEST}"
     ISOLATION_RESULTS["tmp_isolated"]="FAIL(LeakedToHostTmp)"
 fi
 
@@ -220,32 +237,63 @@ fi
 # (6) 設定ファイルの保護試験（v0.4 §43改修構成）
 # worktree全体をrwマウントした上で、設定ファイル群をro重ねマウント
 echo "--- Testing Settings Protection (§43 RO overlay on worktree) ---" | tee -a "${LOG_FILE}"
+
+assert_safe_work_path "${MOCK_WORKTREE}"
+assert_safe_work_path "${MOCK_WORKTREE}/world"
+assert_safe_work_path "${MOCK_WORKTREE}/characters"
+assert_safe_work_path "${MOCK_WORKTREE}/plot"
+assert_safe_work_path "${MOCK_WORKTREE}/foreshadowing"
+assert_safe_work_path "${MOCK_WORKTREE}/rules"
+assert_safe_work_file "${MOCK_WORKTREE}/project.md"
+assert_safe_work_file "${MOCK_WORKTREE}/chapters-order.md"
+
+SETTINGS_MOUNTS=(
+    -v "${MOCK_WORKTREE}:/workspace:$(mount_opts rw)"
+    -v "${MOCK_WORKTREE}/world:/workspace/world:$(mount_opts ro)"
+    -v "${MOCK_WORKTREE}/characters:/workspace/characters:$(mount_opts ro)"
+    -v "${MOCK_WORKTREE}/plot:/workspace/plot:$(mount_opts ro)"
+    -v "${MOCK_WORKTREE}/foreshadowing:/workspace/foreshadowing:$(mount_opts ro)"
+    -v "${MOCK_WORKTREE}/rules:/workspace/rules:$(mount_opts ro)"
+    -v "${MOCK_WORKTREE}/project.md:/workspace/project.md:$(mount_opts ro)"
+    -v "${MOCK_WORKTREE}/chapters-order.md:/workspace/chapters-order.md:$(mount_opts ro)"
+)
+
 out_settings=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${MOCK_WORKTREE}:/workspace:rw${MOUNT_LABEL}" \
-    -v "${MOCK_WORKTREE}/project.md:/workspace/project.md:ro${MOUNT_LABEL}" \
+    "${SETTINGS_MOUNTS[@]}" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "
-        echo 'draft modified' > /workspace/draft.md && echo 'DRAFT_WRITE_OK' || echo 'DRAFT_WRITE_FAIL';
-        echo 'project modified' > /workspace/project.md 2>&1 && echo 'PROJECT_WRITE_LEAK' || echo 'PROJECT_RO_BLOCKED';
+        echo 'bad' > /workspace/world/world.md 2>&1 && echo 'WORLD_WRITE_LEAK' || echo 'WORLD_RO_BLOCKED';
+        echo 'bad' > /workspace/characters/chara.md 2>&1 && echo 'CHARA_WRITE_LEAK' || echo 'CHARA_RO_BLOCKED';
+        echo 'bad' > /workspace/plot/plot.md 2>&1 && echo 'PLOT_WRITE_LEAK' || echo 'PLOT_RO_BLOCKED';
+        echo 'bad' > /workspace/foreshadowing/fs.md 2>&1 && echo 'FS_WRITE_LEAK' || echo 'FS_RO_BLOCKED';
+        echo 'bad' > /workspace/rules/rules.md 2>&1 && echo 'RULES_WRITE_LEAK' || echo 'RULES_RO_BLOCKED';
+        echo 'bad' > /workspace/project.md 2>&1 && echo 'PROJECT_WRITE_LEAK' || echo 'PROJECT_RO_BLOCKED';
+        echo 'bad' > /workspace/chapters-order.md 2>&1 && echo 'ORDER_WRITE_LEAK' || echo 'ORDER_RO_BLOCKED';
+        echo 'draft modified' > /workspace/chapters/ch-001/draft.md 2>&1 && echo 'DRAFT_WRITE_OK' || echo 'DRAFT_WRITE_FAIL';
     " 2>&1 || true)
 
 echo "[Settings Overlay Test] Output: ${out_settings}" | tee -a "${LOG_FILE}"
 
+ALL_SETTINGS_BLOCKED="true"
+if [[ "${out_settings}" != *"WORLD_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/world/world.md")" != "world_setting" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+if [[ "${out_settings}" != *"CHARA_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/characters/chara.md")" != "character_setting" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+if [[ "${out_settings}" != *"PLOT_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/plot/plot.md")" != "plot_setting" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+if [[ "${out_settings}" != *"FS_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/foreshadowing/fs.md")" != "foreshadowing_setting" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+if [[ "${out_settings}" != *"RULES_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/rules/rules.md")" != "rules_setting" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+if [[ "${out_settings}" != *"PROJECT_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/project.md")" != "format_version: 0.4" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+if [[ "${out_settings}" != *"ORDER_RO_BLOCKED"* ]] || [[ "$(cat "${MOCK_WORKTREE}/chapters-order.md")" != "order_info" ]]; then ALL_SETTINGS_BLOCKED="false"; fi
+
 DRAFT_PASS="false"
-PROJECT_PASS="false"
-if [[ "${out_settings}" == *"DRAFT_WRITE_OK"* ]] && [[ "$(cat "${MOCK_WORKTREE}/draft.md")" == "draft modified" ]]; then
+if [[ "${out_settings}" == *"DRAFT_WRITE_OK"* ]] && [[ "$(cat "${MOCK_WORKTREE}/chapters/ch-001/draft.md")" == "draft modified" ]]; then
     DRAFT_PASS="true"
 fi
-if [[ "${out_settings}" == *"PROJECT_RO_BLOCKED"* ]] && [[ "$(cat "${MOCK_WORKTREE}/project.md")" == "format_version: 0.4" ]]; then
-    PROJECT_PASS="true"
-fi
 
-if [[ "${DRAFT_PASS}" == "true" && "${PROJECT_PASS}" == "true" ]]; then
-    ISOLATION_RESULTS["settings_ro_overlay"]="PASS(DraftWritable_ProjectBlocked)"
+if [[ "${ALL_SETTINGS_BLOCKED}" == "true" && "${DRAFT_PASS}" == "true" ]]; then
+    ISOLATION_RESULTS["settings_ro_overlay"]="PASS(DraftWritable_AllSettingsBlocked)"
 else
-    ISOLATION_RESULTS["settings_ro_overlay"]="FAIL(DraftPass:${DRAFT_PASS}_ProjectPass:${PROJECT_PASS})"
+    ISOLATION_RESULTS["settings_ro_overlay"]="FAIL(DraftPass:${DRAFT_PASS}_SettingsBlocked:${ALL_SETTINGS_BLOCKED})"
 fi
 
 # ------------------------------------------------------------------------------
@@ -258,9 +306,10 @@ assert_safe_work_path "${UID_WORK}"
 HOST_UID="$(id -u):$(id -g)"
 
 # (A) keep-id あり
+assert_safe_work_path "${UID_WORK}"
 timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${UID_WORK}:/workspace:rw${MOUNT_LABEL}" \
+    -v "${UID_WORK}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "echo 'keep-id' > /workspace/file_keepid.txt" >> "${LOG_FILE}" 2>&1 || true
@@ -269,8 +318,9 @@ FILE_OWNER_KEEPID=$(stat -c '%u:%g' "${UID_WORK}/file_keepid.txt" 2>/dev/null ||
 echo "File owner with keep-id: ${FILE_OWNER_KEEPID} (host user: ${HOST_UID})" | tee -a "${LOG_FILE}"
 
 # (B) keep-id なし
+assert_safe_work_path "${UID_WORK}"
 timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
-    -v "${UID_WORK}:/workspace:rw${MOUNT_LABEL}" \
+    -v "${UID_WORK}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "echo 'no-keep-id' > /workspace/file_nokeepid.txt" >> "${LOG_FILE}" 2>&1 || true
@@ -296,21 +346,23 @@ assert_safe_work_path "${AGY_OBSERVE_WORK}"
 echo "gitdir: /nonexistent/git/common/dir" > "${AGY_OBSERVE_WORK}/.git"
 echo "initial text" > "${AGY_OBSERVE_WORK}/draft.md"
 
+FILES_BEFORE="${TEST_ROOT}/observe_files_before.txt"
+find "${AGY_OBSERVE_WORK}" -type f | sort > "${FILES_BEFORE}"
 DOT_GIT_HASH_BEFORE="$(get_sha256 "${AGY_OBSERVE_WORK}/.git")"
 
-# コンテナ内で git status または AGY CLI を実行し、挙動を記録
-# TODO: HumanがAGY CLIをコンテナ内で起動可能な場合はAGY CLIをテスト
+SAFE_GIT_PROMPT="git status を実行して結果を1行で報告してください。ファイルは変更しないでください。"
+
 OBSERVE_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${AGY_OBSERVE_WORK}:/workspace:rw${MOUNT_LABEL}" \
+    -v "${AGY_OBSERVE_WORK}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "
         echo '--- Checking git status behavior ---'
         git status 2>&1 || echo 'GIT_COMMAND_FAILED_EXPECTED'
         if command -v '${AGY_BIN}' >/dev/null 2>&1; then
-            echo '--- Testing AGY CLI in unmounted common dir ---'
-            '${AGY_BIN}' ${AGY_FLAGS} --help 2>&1 || echo 'AGY_EXEC_FAILED'
+            echo '--- Testing AGY CLI with safe prompt in unmounted common dir ---'
+            echo '${SAFE_GIT_PROMPT}' | '${AGY_BIN}' ${AGY_NONINTERACTIVE_FLAGS} 2>&1 || echo 'AGY_EXEC_FAILED'
         else
             echo 'AGY_BIN not found inside container'
         fi
@@ -318,9 +370,16 @@ OBSERVE_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
 
 echo "[AGY/Git Observation Output]: ${OBSERVE_OUT}" | tee -a "${LOG_FILE}"
 
+FILES_AFTER="${TEST_ROOT}/observe_files_after.txt"
+find "${AGY_OBSERVE_WORK}" -type f | sort > "${FILES_AFTER}"
 DOT_GIT_HASH_AFTER="$(get_sha256 "${AGY_OBSERVE_WORK}/.git")"
+
+FILE_DIFF="$(diff -u "${FILES_BEFORE}" "${FILES_AFTER}" || true)"
+echo "File list diff before/after AGY observe:" | tee -a "${LOG_FILE}"
+echo "${FILE_DIFF:-none}" | tee -a "${LOG_FILE}"
+
 if [[ "${DOT_GIT_HASH_BEFORE}" == "${DOT_GIT_HASH_AFTER}" ]]; then
-    echo "PASS: .git reference pointer was not altered or deleted by git commands." | tee -a "${LOG_FILE}"
+    echo "PASS: .git reference pointer was not altered or deleted by git/AGY commands." | tee -a "${LOG_FILE}"
     ISOLATION_RESULTS["git_unmounted_observation"]="PASS(PointerPreserved)"
 else
     echo "WARNING: .git reference pointer was modified or recreated!" | tee -a "${LOG_FILE}"
@@ -349,14 +408,14 @@ write_spike_result_yaml \
     "podman_isolation_shell" \
     "podman_rootless" \
     "none" \
-    "-v worktree:rw${MOUNT_LABEL} --userns=keep-id" \
+    "-v worktree:$(mount_opts rw) --userns=keep-id" \
     "podman run [write tests for 8 targets + settings overlay]" \
     0 \
     "spike/phase0/.logs/spike02_${RUN_ID}.log" \
     "${LOG_HASH}" \
     "${RESULT_STATUS}" \
     "${FAILURE_REASON:-none}" \
-    "mount_label_${MOUNT_LABEL}"
+    "mount_label_${MOUNT_LABEL:-none}"
 
 echo "=== Spike-02 Completed: ${RESULT_STATUS} ===" | tee -a "${LOG_FILE}"
 echo "Result recorded at: ${RESULT_YAML}"

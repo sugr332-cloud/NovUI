@@ -40,16 +40,7 @@ AUTH_ENV_VAR_NAME="AGY_API_KEY"
 
 # AGY CLI バイナリ設定
 AGY_BIN="agy"
-AGY_FLAGS=""
-
-# トークンの対話入力（echoなし）。環境変数が既に設定されている場合はそれを優先
-TEST_SECRET_VALUE="${AGY_TEST_TOKEN:-}"
-if [[ -z "${TEST_SECRET_VALUE}" ]]; then
-    if [ -t 0 ]; then
-        read -s -p "Enter AGY API Token for Spike-11 verification (input hidden): " TEST_SECRET_VALUE
-        echo ""
-    fi
-fi
+AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認してHumanが設定
 
 # Podman secret 名
 PODMAN_SECRET_NAME="novui_spike11_secret_${RANDOM}"
@@ -57,15 +48,24 @@ PODMAN_SECRET_NAME="novui_spike11_secret_${RANDOM}"
 # ROファイルマウント用パス
 # TODO: Humanが設定（ホスト側認証情報ファイルが存在する場合）
 AUTH_RO_HOST_FILE=""
-# 認証ファイルコンテナ内パスを変数化（--userns=keep-id 使用時は /home/<user>/.config/... に変更の必要性あり。Humanがコンテナ内の環境に合わせて設定）
-# TODO: コンテナ内ユーザーのHOMEパスに合わせてHumanが確認・設定
-AUTH_RO_CONTAINER_TARGET="/root/.config/agy/credentials.json"
+# 認証ファイルコンテナ内パス
+# TODO: AGYの認証ファイルの場所をHumanが確認
+AUTH_RO_CONTAINER_TARGET=""
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_WORK_DIR="${WORK_DIR}/spike11"
 rm -rf "${TEST_WORK_DIR}"
 # 使い捨て作業領域の安全性検証と作成
 assert_safe_work_path "${TEST_WORK_DIR}"
+
+M3_CRED_COPY="${TEST_WORK_DIR}/cred_copy_m3.json"
+
+# trap 設定（修正D: スクリプト異常終了時でも secret と認証コピーを確実に削除）
+cleanup_auth_resources() {
+    podman secret rm "${PODMAN_SECRET_NAME}" >/dev/null 2>&1 || true
+    rm -f "${M3_CRED_COPY}" >/dev/null 2>&1 || true
+}
+trap cleanup_auth_resources EXIT INT TERM
 
 LOG_FILE="${LOGS_DIR}/spike11_${RUN_ID}.log"
 RESULT_YAML="${RESULTS_DIR}/spike11_${RUN_ID}.yaml"
@@ -78,8 +78,22 @@ if [[ -z "${CONTAINER_IMAGE}" ]]; then
     exit 1
 fi
 
+if [[ -z "${AGY_NONINTERACTIVE_FLAGS}" ]]; then
+    echo "ERROR: AGY_NONINTERACTIVE_FLAGS is not set. Please inspect Spike-00 --help output and configure non-interactive flags." | tee -a "${LOG_FILE}"
+    exit 1
+fi
+
+# トークンの対話入力（修正D: 環境変数からの受取を削除、標準入力が端末でない場合はエラー）
+if [[ ! -t 0 ]]; then
+    echo "ERROR: Standard input is not a terminal. Spike-11 requires interactive token entry via read -s -p." | tee -a "${LOG_FILE}"
+    exit 1
+fi
+
+read -s -p "Enter AGY API Token for Spike-11 verification (input hidden): " TEST_SECRET_VALUE
+echo ""
 if [[ -z "${TEST_SECRET_VALUE}" ]]; then
-    echo "NOTICE: Secret value not provided. Secret presence/leakage checks will be skipped." | tee -a "${LOG_FILE}"
+    echo "ERROR: Token entered is empty." | tee -a "${LOG_FILE}"
+    exit 1
 fi
 
 # 成功した方式を追跡する配列
@@ -98,29 +112,36 @@ assert_safe_work_path "${M1_WORK}"
 # 環境変数をホスト側で export し、podman run には -e VAR_NAME (値なし) で渡す（ps等での露出防止）
 export "${AUTH_ENV_VAR_NAME}=${TEST_SECRET_VALUE}"
 
+M1_EXIT=0
 M1_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --name "spike11_m1_${RUN_ID}" \
     --userns=keep-id \
-    -v "${M1_WORK}:/workspace:rw" \
+    -v "${M1_WORK}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     -e "${AUTH_ENV_VAR_NAME}" \
     "${CONTAINER_IMAGE}" \
     sh -c "
-        if [ -n \"\${${AUTH_ENV_VAR_NAME}:-}\" ]; then
-            echo 'ENV_AUTH_DETECTED'
-            if command -v '${AGY_BIN}' >/dev/null 2>&1; then
-                echo '${SAFE_AUTH_PROMPT}' | '${AGY_BIN}' ${AGY_FLAGS} 2>&1 || echo 'AGY_EXEC_FAILED'
-            fi
-        else
-            echo 'ENV_AUTH_MISSING'
+        if ! command -v '${AGY_BIN}' >/dev/null 2>&1; then
+            echo 'FAIL:agy_not_in_image'
+            exit 2
         fi
-    " 2>&1 || true)
+        if [ -z \"\${${AUTH_ENV_VAR_NAME}:-}\" ]; then
+            echo 'FAIL:env_not_set'
+            exit 3
+        fi
+        echo '${SAFE_AUTH_PROMPT}' | '${AGY_BIN}' ${AGY_NONINTERACTIVE_FLAGS}
+    " 2>&1) || M1_EXIT=$?
 
-echo "[Method 1 Output]: ${M1_OUT}" | tee -a "${LOG_FILE}"
-if [[ "${M1_OUT}" == *"ENV_AUTH_DETECTED"* ]]; then
+echo "[Method 1 Output]: ${M1_OUT} (exit: ${M1_EXIT})" | tee -a "${LOG_FILE}"
+if [[ ${M1_EXIT} -eq 0 ]] && [[ "${M1_OUT}" == *"AUTH_SUCCESS"* ]]; then
     SUCCESSFUL_METHODS+=("env_var")
+    echo "PASS: Method 1 succeeded with AGY inside container." | tee -a "${LOG_FILE}"
+elif [[ "${M1_OUT}" == *"FAIL:agy_not_in_image"* ]]; then
+    FAILURES+=("m1_FAIL(agy_not_in_image)")
+    echo "FAIL: Method 1 failed (agy_not_in_image)." | tee -a "${LOG_FILE}"
 else
-    FAILURES+=("m1_env_missing")
+    FAILURES+=("m1_auth_failed_exit_${M1_EXIT}")
+    echo "FAIL: Method 1 authentication failed." | tee -a "${LOG_FILE}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -132,37 +153,42 @@ assert_safe_work_path "${M2_WORK}"
 
 # シークレットの作成
 podman secret rm "${PODMAN_SECRET_NAME}" >/dev/null 2>&1 || true
-if [[ -n "${TEST_SECRET_VALUE}" ]]; then
-    echo -n "${TEST_SECRET_VALUE}" | podman secret create "${PODMAN_SECRET_NAME}" -
-fi
+echo -n "${TEST_SECRET_VALUE}" | podman secret create "${PODMAN_SECRET_NAME}" -
 
+M2_EXIT=0
 M2_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --name "spike11_m2_${RUN_ID}" \
     --userns=keep-id \
-    -v "${M2_WORK}:/workspace:rw" \
+    -v "${M2_WORK}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     --secret "${PODMAN_SECRET_NAME},type=env,target=${AUTH_ENV_VAR_NAME}" \
     "${CONTAINER_IMAGE}" \
     sh -c "
-        if [ -n \"\${${AUTH_ENV_VAR_NAME}:-}\" ]; then
-            echo 'SECRET_AUTH_DETECTED'
-            if command -v '${AGY_BIN}' >/dev/null 2>&1; then
-                echo '${SAFE_AUTH_PROMPT}' | '${AGY_BIN}' ${AGY_FLAGS} 2>&1 || echo 'AGY_EXEC_FAILED'
-            fi
-        else
-            echo 'SECRET_AUTH_MISSING'
+        if ! command -v '${AGY_BIN}' >/dev/null 2>&1; then
+            echo 'FAIL:agy_not_in_image'
+            exit 2
         fi
-    " 2>&1 || true)
+        if [ -z \"\${${AUTH_ENV_VAR_NAME}:-}\" ]; then
+            echo 'FAIL:secret_not_set'
+            exit 3
+        fi
+        echo '${SAFE_AUTH_PROMPT}' | '${AGY_BIN}' ${AGY_NONINTERACTIVE_FLAGS}
+    " 2>&1) || M2_EXIT=$?
 
-echo "[Method 2 Output]: ${M2_OUT}" | tee -a "${LOG_FILE}"
+echo "[Method 2 Output]: ${M2_OUT} (exit: ${M2_EXIT})" | tee -a "${LOG_FILE}"
 
 # シークレット削除
 podman secret rm "${PODMAN_SECRET_NAME}" >/dev/null 2>&1 || true
 
-if [[ "${M2_OUT}" == *"SECRET_AUTH_DETECTED"* ]]; then
+if [[ ${M2_EXIT} -eq 0 ]] && [[ "${M2_OUT}" == *"AUTH_SUCCESS"* ]]; then
     SUCCESSFUL_METHODS+=("podman_secret")
+    echo "PASS: Method 2 succeeded with AGY inside container." | tee -a "${LOG_FILE}"
+elif [[ "${M2_OUT}" == *"FAIL:agy_not_in_image"* ]]; then
+    FAILURES+=("m2_FAIL(agy_not_in_image)")
+    echo "FAIL: Method 2 failed (agy_not_in_image)." | tee -a "${LOG_FILE}"
 else
-    FAILURES+=("m2_secret_missing")
+    FAILURES+=("m2_auth_failed_exit_${M2_EXIT}")
+    echo "FAIL: Method 2 authentication failed." | tee -a "${LOG_FILE}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -172,40 +198,48 @@ echo "--- Method 3: Read-Only File Mount (:ro) ---" | tee -a "${LOG_FILE}"
 M3_WORK="${TEST_WORK_DIR}/m3_ro"
 assert_safe_work_path "${M3_WORK}"
 
-M3_CRED_COPY="${TEST_WORK_DIR}/cred_copy_m3.json"
 M3_TESTED="false"
 CRED_COPY_REMOVED="not_applicable"
 
-if [[ -n "${AUTH_RO_HOST_FILE}" && -f "${AUTH_RO_HOST_FILE}" ]]; then
-    # 実物ファイルには触れず、.work/spike11/ 配下に安全にコピーして chmod 600
+if [[ -n "${AUTH_RO_HOST_FILE}" && -f "${AUTH_RO_HOST_FILE}" && -n "${AUTH_RO_CONTAINER_TARGET}" ]]; then
+    # 実物ファイルには触れず、.work/spike11/ 配下に安全にコピー
+    assert_safe_work_path "${TEST_WORK_DIR}"
     cp "${AUTH_RO_HOST_FILE}" "${M3_CRED_COPY}"
     chmod 600 "${M3_CRED_COPY}"
-    assert_safe_work_path "${M3_CRED_COPY}"
+    assert_safe_work_file "${M3_CRED_COPY}"
     M3_TESTED="true"
 
+    M3_EXIT=0
     M3_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
         --name "spike11_m3_${RUN_ID}" \
         --userns=keep-id \
-        -v "${M3_WORK}:/workspace:rw" \
-        -v "${M3_CRED_COPY}:${AUTH_RO_CONTAINER_TARGET}:ro" \
+        -v "${M3_WORK}:/workspace:$(mount_opts rw)" \
+        -v "${M3_CRED_COPY}:${AUTH_RO_CONTAINER_TARGET}:$(mount_opts ro)" \
         -w /workspace \
         "${CONTAINER_IMAGE}" \
         sh -c "
-            if [ -r \"${AUTH_RO_CONTAINER_TARGET}\" ]; then
-                echo 'RO_AUTH_FILE_READABLE'
-                if command -v '${AGY_BIN}' >/dev/null 2>&1; then
-                    echo '${SAFE_AUTH_PROMPT}' | '${AGY_BIN}' ${AGY_FLAGS} 2>&1 || echo 'AGY_EXEC_FAILED'
-                fi
+            if ! command -v '${AGY_BIN}' >/dev/null 2>&1; then
+                echo 'FAIL:agy_not_in_image'
+                exit 2
             fi
-            echo 'test_write' >> \"${AUTH_RO_CONTAINER_TARGET}\" 2>&1 || echo 'RO_WRITE_BLOCKED'
-        " 2>&1 || true)
+            if [ ! -r \"${AUTH_RO_CONTAINER_TARGET}\" ]; then
+                echo 'FAIL:ro_file_not_readable'
+                exit 3
+            fi
+            echo '${SAFE_AUTH_PROMPT}' | '${AGY_BIN}' ${AGY_NONINTERACTIVE_FLAGS}
+        " 2>&1) || M3_EXIT=$?
 
-    echo "[Method 3 Output]: ${M3_OUT}" | tee -a "${LOG_FILE}"
+    echo "[Method 3 Output]: ${M3_OUT} (exit: ${M3_EXIT})" | tee -a "${LOG_FILE}"
 
-    if [[ "${M3_OUT}" == *"RO_AUTH_FILE_READABLE"* ]] && [[ "${M3_OUT}" == *"RO_WRITE_BLOCKED"* ]]; then
+    if [[ ${M3_EXIT} -eq 0 ]] && [[ "${M3_OUT}" == *"AUTH_SUCCESS"* ]]; then
         SUCCESSFUL_METHODS+=("ro_file_mount")
+        echo "PASS: Method 3 succeeded with AGY inside container." | tee -a "${LOG_FILE}"
+    elif [[ "${M3_OUT}" == *"FAIL:agy_not_in_image"* ]]; then
+        FAILURES+=("m3_FAIL(agy_not_in_image)")
+        echo "FAIL: Method 3 failed (agy_not_in_image)." | tee -a "${LOG_FILE}"
     else
-        FAILURES+=("m3_ro_mount_failed")
+        FAILURES+=("m3_auth_failed_exit_${M3_EXIT}")
+        echo "FAIL: Method 3 authentication failed." | tee -a "${LOG_FILE}"
     fi
 
     # 試験直後にコピーを確実に削除
@@ -219,7 +253,7 @@ if [[ -n "${AUTH_RO_HOST_FILE}" && -f "${AUTH_RO_HOST_FILE}" ]]; then
         echo "CRITICAL ERROR: Failed to remove temporary credential copy '${M3_CRED_COPY}'!" | tee -a "${LOG_FILE}"
     fi
 else
-    echo "NOTICE: AUTH_RO_HOST_FILE not set. Method 3 skipped." | tee -a "${LOG_FILE}"
+    echo "NOTICE: AUTH_RO_HOST_FILE or AUTH_RO_CONTAINER_TARGET not set. Method 3 skipped." | tee -a "${LOG_FILE}"
 fi
 
 # ------------------------------------------------------------------------------

@@ -112,9 +112,10 @@ record_wt_pointer_hashes "Before Tests" "${WT_HASH_BEFORE}"
 # ------------------------------------------------------------------------------
 echo "--- Config 1: Git common directory NOT mounted (using worktree 1) ---" | tee -a "${LOG_FILE}"
 
+assert_safe_work_path "${TEST_WT_1}"
 C1_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${TEST_WT_1}:/workspace:rw" \
+    -v "${TEST_WT_1}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "
@@ -137,10 +138,12 @@ echo "${C1_OUT}" | tee -a "${LOG_FILE}"
 # ------------------------------------------------------------------------------
 echo "--- Config 2: Git common directory mounted READ-ONLY (:ro) (using worktree 2) ---" | tee -a "${LOG_FILE}"
 
+assert_safe_work_path "${TEST_WT_2}"
+assert_safe_work_path "${TEST_GIT_COMMON}"
 C2_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
-    -v "${TEST_WT_2}:/workspace:rw" \
-    -v "${TEST_GIT_COMMON}:${TEST_GIT_COMMON}:ro" \
+    -v "${TEST_WT_2}:/workspace:$(mount_opts rw)" \
+    -v "${TEST_GIT_COMMON}:${TEST_GIT_COMMON}:$(mount_opts ro)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
     sh -c "
