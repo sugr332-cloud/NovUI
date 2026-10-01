@@ -26,7 +26,7 @@ COPY agy /usr/local/bin/agy
 RUN chmod 0755 /usr/local/bin/agy
 
 # 自動更新に関する設定
-# TODO: Spike-00の--help出力で自動更新の無効化方法を確認
+# Spike-00 の --help に自動更新を無効化するフラグはない。コンテナ内では /usr/local/bin が書込み不可のため更新は失敗する想定。Spike-11 で更新試行の有無を記録する
 
 # 4. 作業用ディレクトリの準備
 WORKDIR /workspace

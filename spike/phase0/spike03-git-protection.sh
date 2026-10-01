@@ -32,8 +32,8 @@ ensure_directories
 # ------------------------------------------------------------------------------
 TIMEOUT_ISOLATION_TEST=60
 
-# TODO: build-image.sh の出力したタグを指定
-CONTAINER_IMAGE="novui-spike:agy-<バージョン>"
+# build-image.sh でビルドしたイメージタグを設定
+CONTAINER_IMAGE="novui-spike:agy-1.2.14"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_ROOT="${WORK_DIR}/spike03"

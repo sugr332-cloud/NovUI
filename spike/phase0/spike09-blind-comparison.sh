@@ -32,19 +32,18 @@ ensure_directories
 # ------------------------------------------------------------------------------
 # 設定・変数定義
 # ------------------------------------------------------------------------------
-# タイムアウト値（手順書5章）
+# タイムアウト値（手順書5章、print モードは最後にまとめて出力するため、無出力timeoutを全体timeoutと同じにする）
 TIMEOUT_AGY_TOTAL=900
-TIMEOUT_AGY_NO_OUTPUT=180
+TIMEOUT_AGY_NO_OUTPUT=900
 TIMEOUT_CLAUDE_TOTAL=300
-TIMEOUT_CLAUDE_NO_OUTPUT=120
+TIMEOUT_CLAUDE_NO_OUTPUT=300
 
-# CLIバイナリおよびフラグ
-# TODO: Spike-00の--help出力で確認してHumanが設定
+# CLIバイナリおよびフラグ（Spike-00 で確定）
 AGY_BIN="agy"
-AGY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
+AGY_FLAGS="--print --mode accept-edits"
 
 CLAUDE_BIN="claude"
-CLAUDE_READONLY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --tools "" 等)
+CLAUDE_READONLY_FLAGS="-p --tools Read --permission-prompts none --no-session-persistence"
 
 INPUT_DIR="${SCRIPT_DIR}/spike09-input"
 

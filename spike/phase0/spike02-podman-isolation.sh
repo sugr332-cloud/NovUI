@@ -31,16 +31,16 @@ TIMEOUT_ISOLATION_TEST=60
 TIMEOUT_AGY_TOTAL=900
 TIMEOUT_NO_OUTPUT=180
 
-# TODO: build-image.sh の出力したタグを指定
-CONTAINER_IMAGE="novui-spike:agy-<バージョン>"
+# build-image.sh でビルドしたイメージタグを設定
+CONTAINER_IMAGE="novui-spike:agy-1.2.14"
 
 # SELinuxラベル設定（既定値は "Z"、"z" または "Z" または ""）
 # TODO: Spike-02の結果で確定
 MOUNT_LABEL="Z"
 
-# AGY CLI バイナリ設定（Git未マウント時の挙動観察用）
+# AGY CLI バイナリ設定（Git未マウント時の挙動観察用、Spike-00 で確定）
 AGY_BIN="/usr/local/bin/agy"
-AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
+AGY_NONINTERACTIVE_FLAGS="--print --mode accept-edits"
 
 # 認証設定（Spike-11 方式Aのトークンファイルコピー方式）
 AGY_HOST_TOKEN_FILE="${AGY_HOST_TOKEN_FILE:-$HOME/.gemini/antigravity-cli/antigravity-oauth-token}"

@@ -32,15 +32,12 @@ ensure_directories
 TIMEOUT_CLAUDE_TOTAL=300
 TIMEOUT_CLAUDE_NO_OUTPUT=120
 
-# CLIバイナリおよびフラグ
-# TODO: Spike-00の--help出力を確認してHumanが設定
+# CLIバイナリおよびフラグ（Spike-00 で確定）
 CLAUDE_BIN="claude"
 # 読み取り専用フラグ（Write/Edit/Bash 等のツールを制限するフラグ）
-# TODO: Spike-00の--help出力で確認 (例: --tools "" または --read-only, --permission-mode plan 等)
-CLAUDE_READONLY_FLAGS=""
-# 構造化出力オプション（CLIが提供する場合）
-# TODO: Spike-00の--help出力で確認 (例: --json または --output-format json 等)
-CLAUDE_JSON_FLAGS=""
+CLAUDE_READONLY_FLAGS="-p --tools Read --permission-prompts none --no-session-persistence"
+# 構造化出力オプション
+CLAUDE_JSON_FLAGS="--output-format text"
 
 SCHEMA_FILE="${SCRIPT_DIR}/spike05-schema.json"
 

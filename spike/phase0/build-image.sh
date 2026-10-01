@@ -30,9 +30,8 @@ ensure_directories
 # ホスト上の AGY CLI バイナリパス
 AGY_HOST_BIN="${AGY_HOST_BIN:-$HOME/.local/bin/agy}"
 
-# ベースイメージの定義
-# TODO: Humanが指定（例: registry.fedoraproject.org/fedora:40 等）
-BASE_IMAGE=""
+# ベースイメージの定義（Spike-00 で確定）
+BASE_IMAGE="registry.fedoraproject.org/fedora:44"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 BUILD_DIR="${WORK_DIR}/image-build"

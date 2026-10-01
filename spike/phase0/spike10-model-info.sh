@@ -32,12 +32,11 @@ TIMEOUT_AGY_NO_OUTPUT=180
 TIMEOUT_CLAUDE_TOTAL=300
 TIMEOUT_CLAUDE_NO_OUTPUT=120
 
-# CLIバイナリ
-# TODO: Spike-00の--help出力で確認してHumanが設定
+# CLIバイナリ（Spike-00 で確定）
 AGY_BIN="agy"
-AGY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
+AGY_FLAGS="--print --mode accept-edits"
 CLAUDE_BIN="claude"
-CLAUDE_READONLY_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --tools "" 等)
+CLAUDE_READONLY_FLAGS="-p --tools Read --permission-prompts none --no-session-persistence"
 
 # モデル情報取得用フラグ（もしCLIに専用フラグが存在する場合）
 # TODO: Spike-00の--help出力を参照

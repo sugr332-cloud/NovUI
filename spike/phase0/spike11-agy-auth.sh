@@ -32,19 +32,18 @@ ensure_directories
 TIMEOUT_AGY_TOTAL=900
 TIMEOUT_NO_OUTPUT=180
 
-# TODO: build-image.sh の出力したタグを指定（例: novui-spike:agy-2.0.0）
-CONTAINER_IMAGE="novui-spike:agy-<バージョン>"
+# build-image.sh でビルドしたイメージタグを設定
+CONTAINER_IMAGE="novui-spike:agy-1.2.14"
 
 # ホスト側トークンファイルパス
 AGY_HOST_TOKEN_FILE="${AGY_HOST_TOKEN_FILE:-$HOME/.gemini/antigravity-cli/antigravity-oauth-token}"
 
-# APIキー環境変数名（方式C・D用）
-# TODO: Spike-00の--help出力でAPIキー認証に対応している場合のみ設定（例: AGY_API_KEY）
+# APIキー環境変数名（方式C・D用: Spike-00の--helpにAPIキー認証の項目がないため空のまま）
 AGY_API_KEY_ENV_NAME=""
 
-# AGY CLI バイナリ設定（コンテナ内）
+# AGY CLI バイナリ設定（コンテナ内、Spike-00 で確定）
 AGY_BIN="/usr/local/bin/agy"
-AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認してHumanが設定
+AGY_NONINTERACTIVE_FLAGS="--print --mode accept-edits"
 
 # ホスト上のAGYバイナリパス（ホスト基準測定用）
 AGY_HOST_BIN="${AGY_HOST_BIN:-$HOME/.local/bin/agy}"

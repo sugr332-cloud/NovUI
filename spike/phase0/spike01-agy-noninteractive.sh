@@ -32,10 +32,9 @@ ensure_directories
 TIMEOUT_AGY_TOTAL=900
 TIMEOUT_AGY_NO_OUTPUT=180
 
-# CLIバイナリおよびフラグ設定
-# TODO: Spike-00の--help出力を確認してHumanが設定
+# CLIバイナリおよびフラグ設定（Spike-00 で確定）
 AGY_BIN="agy"
-AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive, -y, --yes 等)
+AGY_NONINTERACTIVE_FLAGS="--print --mode accept-edits"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_WORK_DIR="${WORK_DIR}/spike01"
