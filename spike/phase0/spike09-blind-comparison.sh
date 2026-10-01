@@ -40,7 +40,7 @@ TIMEOUT_CLAUDE_NO_OUTPUT=300
 
 # CLIバイナリおよびフラグ（Spike-00 で確定）
 AGY_BIN="agy"
-AGY_FLAGS="--print --mode accept-edits"
+AGY_FLAGS="--mode accept-edits"
 
 CLAUDE_BIN="claude"
 CLAUDE_READONLY_FLAGS="-p --tools Read --permission-prompts none --no-session-persistence"
@@ -143,13 +143,15 @@ echo "--- 2. Generating chapter with AGY CLI ---" | tee -a "${LOG_FILE}"
 RAW_AGY="${TEST_WORK}/raw_agy.txt"
 RAW_AGY_ERR="${TEST_WORK}/raw_agy_err.log"
 
+AGY_PROMPT_TEXT="$(cat "${PROMPT_FILE}")"
+
 run_monitored_command \
     "${TIMEOUT_AGY_TOTAL}" \
     "${TIMEOUT_AGY_NO_OUTPUT}" \
     "${RAW_AGY}" \
     "${RAW_AGY_ERR}" \
-    "${PROMPT_FILE}" \
-    env -C "${TEST_WORK}" "${AGY_BIN}" ${AGY_FLAGS}
+    "" \
+    env -C "${TEST_WORK}" "${AGY_BIN}" ${AGY_FLAGS} "--print=${AGY_PROMPT_TEXT}"
 
 AGY_EXIT="${LAST_CMD_EXIT_CODE}"
 echo "AGY generation finished with exit code: ${AGY_EXIT} (timed_out: ${LAST_CMD_TIMED_OUT})" | tee -a "${LOG_FILE}"

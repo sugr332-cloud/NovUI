@@ -34,7 +34,7 @@ TIMEOUT_CLAUDE_NO_OUTPUT=120
 
 # CLIバイナリ（Spike-00 で確定）
 AGY_BIN="agy"
-AGY_FLAGS="--print --mode accept-edits"
+AGY_FLAGS="--mode accept-edits"
 CLAUDE_BIN="claude"
 CLAUDE_READONLY_FLAGS="-p --tools Read --permission-prompts none --no-session-persistence"
 
@@ -99,13 +99,15 @@ if command -v "${AGY_BIN}" >/dev/null 2>&1; then
     AGY_SELF_OUT="${TEST_WORK_DIR}/agy_self_report_out.log"
     AGY_SELF_ERR="${TEST_WORK_DIR}/agy_self_report_err.log"
 
+    AGY_PROMPT_TEXT="$(cat "${AGY_PROMPT_FILE}")"
+
     run_monitored_command \
         "${TIMEOUT_AGY_TOTAL}" \
         "${TIMEOUT_AGY_NO_OUTPUT}" \
         "${AGY_SELF_OUT}" \
         "${AGY_SELF_ERR}" \
-        "${AGY_PROMPT_FILE}" \
-        env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_FLAGS}
+        "" \
+        env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_FLAGS} "--print=${AGY_PROMPT_TEXT}"
 
     if [[ -f "${AGY_SELF_OUT}" ]]; then
         AGY_SELF_REPORT="$(cat "${AGY_SELF_OUT}")"

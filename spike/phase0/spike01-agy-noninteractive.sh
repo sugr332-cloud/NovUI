@@ -34,7 +34,7 @@ TIMEOUT_AGY_NO_OUTPUT=180
 
 # CLIバイナリおよびフラグ設定（Spike-00 で確定）
 AGY_BIN="agy"
-AGY_NONINTERACTIVE_FLAGS="--print --mode accept-edits"
+AGY_NONINTERACTIVE_FLAGS="--mode accept-edits"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_WORK_DIR="${WORK_DIR}/spike01"
@@ -61,9 +61,9 @@ echo "=== Spike-01: AGY Non-interactive Verification Started ==="
 echo "Work directory: ${TEST_WORK_DIR}"
 
 # ------------------------------------------------------------------------------
-# テスト1: 正常実行（stdin経由のプロンプト入力、stdout/stderr記録、終了コード検査）
+# テスト1: 正常実行（--print=<プロンプト> 形式での非対話実行）
 # ------------------------------------------------------------------------------
-echo "--- Test 1: Non-interactive normal execution via stdin ---"
+echo "--- Test 1: Non-interactive normal execution via --print=<prompt> ---"
 
 # CLI実行前の git status 差分検査
 GIT_SAFETY_BEFORE="$(check_git_status_safety)"
@@ -71,14 +71,16 @@ if [[ "${GIT_SAFETY_BEFORE}" != "CLEAN" ]]; then
     echo "WARNING: Pre-existing git status modifications detected." >&2
 fi
 
-# プロンプトを標準入力から渡し、作業ディレクトリを TEST_WORK_DIR に固定して監視付き実行
+PROMPT_TEXT="$(cat "${SAFE_PROMPT_FILE}")"
+
+# プロンプトを --print="${PROMPT_TEXT}" として渡し、stdin_file は空で監視付き実行
 run_monitored_command \
     "${TIMEOUT_AGY_TOTAL}" \
     "${TIMEOUT_AGY_NO_OUTPUT}" \
     "${LOG_STDOUT}" \
     "${LOG_STDERR}" \
-    "${SAFE_PROMPT_FILE}" \
-    env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+    "" \
+    env -C "${TEST_WORK_DIR}" "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
 
 EXIT_CODE="${LAST_CMD_EXIT_CODE}"
 DURATION="${LAST_CMD_DURATION}"
@@ -101,9 +103,42 @@ FILE_CREATED="false"
 if [[ -f "${TEST_WORK_DIR}/hello.txt" ]]; then
     FILE_CREATED="true"
     echo "PASS: hello.txt successfully created in target work directory."
+    echo "hello.txt content: $(head -n 1 "${TEST_WORK_DIR}/hello.txt")"
 else
     echo "WARNING: hello.txt was not created in ${TEST_WORK_DIR}."
 fi
+
+# ------------------------------------------------------------------------------
+# テスト1b: 標準入力の参考試験（合否判定には含めない）
+# ------------------------------------------------------------------------------
+echo "--- Test 1b: Reference test - execution via stdin with --print (informational only) ---"
+STDIN_TEST_WORK="${TEST_WORK_DIR}/stdin_test"
+assert_safe_work_path "${STDIN_TEST_WORK}"
+
+STDIN_PROMPT_FILE="${STDIN_TEST_WORK}/prompt.txt"
+echo "${SAFE_PROMPT}" > "${STDIN_PROMPT_FILE}"
+
+STDIN_OUT="${LOGS_DIR}/spike01_${RUN_ID}_stdin_stdout.log"
+STDIN_ERR="${LOGS_DIR}/spike01_${RUN_ID}_stdin_stderr.log"
+
+run_monitored_command \
+    "${TIMEOUT_AGY_TOTAL}" \
+    "${TIMEOUT_AGY_NO_OUTPUT}" \
+    "${STDIN_OUT}" \
+    "${STDIN_ERR}" \
+    "${STDIN_PROMPT_FILE}" \
+    env -C "${STDIN_TEST_WORK}" "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} --print
+
+TEST1B_EXIT_CODE="${LAST_CMD_EXIT_CODE}"
+TEST1B_HELLO_EXISTS="false"
+if [[ -f "${STDIN_TEST_WORK}/hello.txt" ]]; then
+    TEST1B_HELLO_EXISTS="true"
+fi
+TEST1B_ERR_MSG="$(cat "${STDIN_ERR}" 2>/dev/null || echo '')"
+
+echo "Test 1b exit code: ${TEST1B_EXIT_CODE}"
+echo "Test 1b hello.txt exists: ${TEST1B_HELLO_EXISTS}"
+echo "Test 1b stderr message: ${TEST1B_ERR_MSG}"
 
 # ------------------------------------------------------------------------------
 # テスト2: 異常終了時の終了コード検査（不正な引数指定）
@@ -164,7 +199,7 @@ write_spike_result_yaml \
     "$("${AGY_BIN}" --version 2>/dev/null || echo 'unknown')" \
     "unknown" \
     "host_execution_noninteractive" \
-    "${AGY_BIN} ${AGY_NONINTERACTIVE_FLAGS} [stdin prompt]" \
+    "${AGY_BIN} ${AGY_NONINTERACTIVE_FLAGS} --print=..." \
     "${EXIT_CODE}" \
     "spike/phase0/.logs/spike01_${RUN_ID}_combined.log" \
     "${LOG_HASH}" \

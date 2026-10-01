@@ -43,7 +43,7 @@ AGY_API_KEY_ENV_NAME=""
 
 # AGY CLI バイナリ設定（コンテナ内、Spike-00 で確定）
 AGY_BIN="/usr/local/bin/agy"
-AGY_NONINTERACTIVE_FLAGS="--print --mode accept-edits"
+AGY_NONINTERACTIVE_FLAGS="--mode accept-edits"
 
 # ホスト上のAGYバイナリパス（ホスト基準測定用）
 AGY_HOST_BIN="${AGY_HOST_BIN:-$HOME/.local/bin/agy}"
@@ -110,6 +110,7 @@ fi
 PROMPT_FILE="${TEST_WORK_DIR}/prompt_input.txt"
 echo "${SAFE_AUTH_PROMPT}" > "${PROMPT_FILE}"
 chmod 600 "${PROMPT_FILE}"
+PROMPT_TEXT="$(cat "${PROMPT_FILE}")"
 
 # ジョブ用HOME初期化関数（トークンコピー配置）
 setup_job_home() {
@@ -159,7 +160,7 @@ M_A_RUN1_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run1_stdout.log"
 M_A_RUN1_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run1_stderr.log"
 
 run_monitored_container "${CONTAINER_NAME_M_A_RUN1}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-    "${M_A_RUN1_STDOUT}" "${M_A_RUN1_STDERR}" "${PROMPT_FILE}" \
+    "${M_A_RUN1_STDOUT}" "${M_A_RUN1_STDERR}" "" \
     podman run --name "${CONTAINER_NAME_M_A_RUN1}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
@@ -167,7 +168,7 @@ run_monitored_container "${CONTAINER_NAME_M_A_RUN1}" "${TIMEOUT_AGY_TOTAL}" "${T
         -v "${WORKSPACE_A}:/workspace:$(mount_opts rw)" \
         -w /workspace \
         "${CONTAINER_IMAGE}" \
-        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
 
 DURATION_A_RUN1="${LAST_CMD_DURATION}"
 EXIT_A_RUN1="${LAST_CMD_EXIT_CODE}"
@@ -200,7 +201,7 @@ M_A_RUN2_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run2_stdout.log"
 M_A_RUN2_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run2_stderr.log"
 
 run_monitored_container "${CONTAINER_NAME_M_A_RUN2}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-    "${M_A_RUN2_STDOUT}" "${M_A_RUN2_STDERR}" "${PROMPT_FILE}" \
+    "${M_A_RUN2_STDOUT}" "${M_A_RUN2_STDERR}" "" \
     podman run --name "${CONTAINER_NAME_M_A_RUN2}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
@@ -208,7 +209,7 @@ run_monitored_container "${CONTAINER_NAME_M_A_RUN2}" "${TIMEOUT_AGY_TOTAL}" "${T
         -v "${WORKSPACE_A}:/workspace:$(mount_opts rw)" \
         -w /workspace \
         "${CONTAINER_IMAGE}" \
-        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
 
 DURATION_A_RUN2="${LAST_CMD_DURATION}"
 EXIT_A_RUN2="${LAST_CMD_EXIT_CODE}"
@@ -253,8 +254,8 @@ HOST_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_host_stderr.log"
 
 if [[ -f "${AGY_HOST_BIN}" ]]; then
     run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-        "${HOST_STDOUT}" "${HOST_STDERR}" "${PROMPT_FILE}" \
-        env -C "${HOST_BASELINE_DIR}" "${AGY_HOST_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+        "${HOST_STDOUT}" "${HOST_STDERR}" "" \
+        env -C "${HOST_BASELINE_DIR}" "${AGY_HOST_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
     DURATION_HOST="${LAST_CMD_DURATION}"
     EXIT_HOST="${LAST_CMD_EXIT_CODE}"
     echo "Host Baseline: Exit code ${EXIT_HOST}, Duration: ${DURATION_HOST}s" | tee -a "${LOG_FILE}"
@@ -277,7 +278,7 @@ M_B_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_b_stdout.log"
 M_B_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_b_stderr.log"
 
 run_monitored_container "${CONTAINER_NAME_M_B}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-    "${M_B_STDOUT}" "${M_B_STDERR}" "${PROMPT_FILE}" \
+    "${M_B_STDOUT}" "${M_B_STDERR}" "" \
     podman run --name "${CONTAINER_NAME_M_B}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
@@ -286,7 +287,7 @@ run_monitored_container "${CONTAINER_NAME_M_B}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOU
         -v "${WORKSPACE_B}:/workspace:$(mount_opts rw)" \
         -w /workspace \
         "${CONTAINER_IMAGE}" \
-        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
 
 EXIT_B="${LAST_CMD_EXIT_CODE}"
 DURATION_B="${LAST_CMD_DURATION}"
@@ -338,7 +339,7 @@ else
     M_C_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_c_stderr.log"
 
     run_monitored_container "${CONTAINER_NAME_M_C}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-        "${M_C_STDOUT}" "${M_C_STDERR}" "${PROMPT_FILE}" \
+        "${M_C_STDOUT}" "${M_C_STDERR}" "" \
         podman run --name "${CONTAINER_NAME_M_C}" --rm -i \
             --userns=keep-id \
             -e HOME=/home/agy \
@@ -347,7 +348,7 @@ else
             -v "${WORKSPACE_C}:/workspace:$(mount_opts rw)" \
             -w /workspace \
             "${CONTAINER_IMAGE}" \
-            "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+            "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
 
     unset "${AGY_API_KEY_ENV_NAME}"
     EXIT_C="${LAST_CMD_EXIT_CODE}"
@@ -373,7 +374,7 @@ else
     M_D_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_d_stderr.log"
 
     run_monitored_container "${CONTAINER_NAME_M_D}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-        "${M_D_STDOUT}" "${M_D_STDERR}" "${PROMPT_FILE}" \
+        "${M_D_STDOUT}" "${M_D_STDERR}" "" \
         podman run --name "${CONTAINER_NAME_M_D}" --rm -i \
             --userns=keep-id \
             -e HOME=/home/agy \
@@ -382,7 +383,7 @@ else
             -v "${WORKSPACE_D}:/workspace:$(mount_opts rw)" \
             -w /workspace \
             "${CONTAINER_IMAGE}" \
-            "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+            "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_TEXT}"
 
     podman secret rm "${PODMAN_SECRET_NAME}" >/dev/null 2>&1 || true
     EXIT_D="${LAST_CMD_EXIT_CODE}"

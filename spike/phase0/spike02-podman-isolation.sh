@@ -40,7 +40,7 @@ MOUNT_LABEL="Z"
 
 # AGY CLI バイナリ設定（Git未マウント時の挙動観察用、Spike-00 で確定）
 AGY_BIN="/usr/local/bin/agy"
-AGY_NONINTERACTIVE_FLAGS="--print --mode accept-edits"
+AGY_NONINTERACTIVE_FLAGS="--mode accept-edits"
 
 # 認証設定（Spike-11 方式Aのトークンファイルコピー方式）
 AGY_HOST_TOKEN_FILE="${AGY_HOST_TOKEN_FILE:-$HOME/.gemini/antigravity-cli/antigravity-oauth-token}"
@@ -386,8 +386,10 @@ echo "Testing AGY CLI with safe prompt in unmounted common dir..." | tee -a "${L
 OBSERVE_STDOUT="${LOGS_DIR}/spike02_${RUN_ID}_observe_stdout.log"
 OBSERVE_STDERR="${LOGS_DIR}/spike02_${RUN_ID}_observe_stderr.log"
 
+PROMPT_OBSERVE_TEXT="$(cat "${PROMPT_OBSERVE_FILE}")"
+
 run_monitored_container "${AGY_OBSERVE_CONTAINER}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-    "${OBSERVE_STDOUT}" "${OBSERVE_STDERR}" "${PROMPT_OBSERVE_FILE}" \
+    "${OBSERVE_STDOUT}" "${OBSERVE_STDERR}" "" \
     podman run --name "${AGY_OBSERVE_CONTAINER}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
@@ -395,7 +397,7 @@ run_monitored_container "${AGY_OBSERVE_CONTAINER}" "${TIMEOUT_AGY_TOTAL}" "${TIM
         -v "${AGY_OBSERVE_WORK}:/workspace:$(mount_opts rw)" \
         -w /workspace \
         "${CONTAINER_IMAGE}" \
-        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS} "--print=${PROMPT_OBSERVE_TEXT}"
 
 echo "AGY Observation Completed: Exit code ${LAST_CMD_EXIT_CODE}, Duration: ${LAST_CMD_DURATION}s" | tee -a "${LOG_FILE}"
 
