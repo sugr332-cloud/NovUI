@@ -47,7 +47,9 @@ spike/phase0/ の検証スクリプトは参照用として残し、Controller �
 * schemas/ に JSON Schema を置く：chapter.yaml、plan.yaml、review.yaml、requests.yaml、承認記録、Job 記録、Claude 出力（plan、integrity_review、writing_review、state_patch、summary、instruction_routing）
 * YAML の読み書きと schema 検証、Claude 出力の parse・検証・再要求（最大2回）の制御
 * Job 記録（基準 commit、Context のパスとハッシュ、CLI 名とバージョン、--model、イメージのタグと ID、timeout 情報）
-* 持ち越し：Claude の `--json-schema` の検証
+* YAML の読み込みは、日時の自動変換・yes/no 等の真偽値変換・重複キーの上書きを行わない専用の Loader を使う
+
+指示書：docs/phase1/agy-instruction-1b.md
 
 ### 1-C：Job 実行器
 
@@ -55,7 +57,7 @@ spike/phase0/ の検証スクリプトは参照用として残し、Controller �
 * Job用HOME：作成、トークンのコピー（600）、終了時の削除（例外・シグナル時を含む）
 * コンテナ起動：§5.2・§5.3 の引数の組み立て、`--name`、終了後の `podman rm -f`
 * マウント検査：同じマウント構成の検査用コンテナで mountinfo を取得し、1-A の mountinfo で検査する
-* 持ち越し：実際の worktree 配置場所での SELinux ラベル確認、builtin/skills 等のイメージ焼き込みの判断
+* 持ち越し：実際の worktree 配置場所での SELinux ラベル確認、builtin/skills 等のイメージ焼き込みの判断、Claude の `--json-schema` の検証（1-B から移動）
 
 ### 1-D：worktree・lock・Git 反映と受入確認
 
