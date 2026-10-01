@@ -49,8 +49,8 @@ AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認してHuman�
 # ホスト上のAGYバイナリパス（ホスト基準測定用）
 AGY_HOST_BIN="${AGY_HOST_BIN:-$HOME/.local/bin/agy}"
 
-# 固定プロンプト（無害な指示）
-SAFE_AUTH_PROMPT="AUTH_SUCCESS とだけ返答してください。ファイルは作成・変更しないでください。"
+# 固定プロンプト（無害な指示: 判定文字列を文面に含めない）
+SAFE_AUTH_PROMPT="AUTH と SUCCESS の2語をアンダースコア1文字でつないだ1語だけを返答してください。ファイルは作成・変更しないでください。"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_WORK_DIR="${WORK_DIR}/spike11"
@@ -68,8 +68,21 @@ METHOD_C_HOME="${TEST_WORK_DIR}/method_c/home"
 METHOD_D_HOME="${TEST_WORK_DIR}/method_d/home"
 HOST_BASELINE_DIR="${TEST_WORK_DIR}/host_baseline"
 
-# trap 設定: 異常終了時でもすべてのジョブ用HOME、一時ファイル、podman secretを削除
+# 各方式のコンテナ名定義（一意な命名規則: spike11_<RUN_ID>_<用途>）
+CONTAINER_NAME_M_A_RUN1="spike11_${RUN_ID}_m_a_run1"
+CONTAINER_NAME_M_A_RUN2="spike11_${RUN_ID}_m_a_run2"
+CONTAINER_NAME_M_B="spike11_${RUN_ID}_m_b"
+CONTAINER_NAME_M_C="spike11_${RUN_ID}_m_c"
+CONTAINER_NAME_M_D="spike11_${RUN_ID}_m_d"
+
+# trap 設定: 異常終了時でもすべてのコンテナ、ジョブ用HOME、一時ファイル、podman secretを削除
 cleanup_auth_resources() {
+    podman rm -f \
+        "${CONTAINER_NAME_M_A_RUN1}" \
+        "${CONTAINER_NAME_M_A_RUN2}" \
+        "${CONTAINER_NAME_M_B}" \
+        "${CONTAINER_NAME_M_C}" \
+        "${CONTAINER_NAME_M_D}" >/dev/null 2>&1 || true
     podman secret rm "${PODMAN_SECRET_NAME}" >/dev/null 2>&1 || true
     rm -rf "${METHOD_A_HOME}" "${METHOD_B_HOME}" "${METHOD_C_HOME}" "${METHOD_D_HOME}" >/dev/null 2>&1 || true
     rm -f "${SECRETS_TEMP_PATTERNS}" >/dev/null 2>&1 || true
@@ -146,9 +159,9 @@ echo "Executing Method A - Run 1 (Cold Start)..." | tee -a "${LOG_FILE}"
 M_A_RUN1_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run1_stdout.log"
 M_A_RUN1_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run1_stderr.log"
 
-run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+run_monitored_container "${CONTAINER_NAME_M_A_RUN1}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
     "${M_A_RUN1_STDOUT}" "${M_A_RUN1_STDERR}" "${PROMPT_FILE}" \
-    podman run --rm \
+    podman run --name "${CONTAINER_NAME_M_A_RUN1}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
         -v "${METHOD_A_HOME}:/home/agy:$(mount_opts rw)" \
@@ -187,9 +200,9 @@ echo "Executing Method A - Run 2 (Warm Start, same job HOME)..." | tee -a "${LOG
 M_A_RUN2_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run2_stdout.log"
 M_A_RUN2_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_a_run2_stderr.log"
 
-run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+run_monitored_container "${CONTAINER_NAME_M_A_RUN2}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
     "${M_A_RUN2_STDOUT}" "${M_A_RUN2_STDERR}" "${PROMPT_FILE}" \
-    podman run --rm \
+    podman run --name "${CONTAINER_NAME_M_A_RUN2}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
         -v "${METHOD_A_HOME}:/home/agy:$(mount_opts rw)" \
@@ -240,12 +253,9 @@ HOST_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_host_stdout.log"
 HOST_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_host_stderr.log"
 
 if [[ -f "${AGY_HOST_BIN}" ]]; then
-    (
-        cd "${HOST_BASELINE_DIR}"
-        run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
-            "${HOST_STDOUT}" "${HOST_STDERR}" "${PROMPT_FILE}" \
-            "${AGY_HOST_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
-    )
+    run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+        "${HOST_STDOUT}" "${HOST_STDERR}" "${PROMPT_FILE}" \
+        env -C "${HOST_BASELINE_DIR}" "${AGY_HOST_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
     DURATION_HOST="${LAST_CMD_DURATION}"
     EXIT_HOST="${LAST_CMD_EXIT_CODE}"
     echo "Host Baseline: Exit code ${EXIT_HOST}, Duration: ${DURATION_HOST}s" | tee -a "${LOG_FILE}"
@@ -267,9 +277,9 @@ assert_safe_work_path "${WORKSPACE_B}"
 M_B_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_b_stdout.log"
 M_B_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_b_stderr.log"
 
-run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+run_monitored_container "${CONTAINER_NAME_M_B}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
     "${M_B_STDOUT}" "${M_B_STDERR}" "${PROMPT_FILE}" \
-    podman run --rm \
+    podman run --name "${CONTAINER_NAME_M_B}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
         -v "${METHOD_B_HOME}:/home/agy:$(mount_opts rw)" \
@@ -328,9 +338,9 @@ else
     M_C_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_c_stdout.log"
     M_C_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_c_stderr.log"
 
-    run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+    run_monitored_container "${CONTAINER_NAME_M_C}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
         "${M_C_STDOUT}" "${M_C_STDERR}" "${PROMPT_FILE}" \
-        podman run --rm \
+        podman run --name "${CONTAINER_NAME_M_C}" --rm -i \
             --userns=keep-id \
             -e HOME=/home/agy \
             -e "${AGY_API_KEY_ENV_NAME}" \
@@ -363,17 +373,17 @@ else
     M_D_STDOUT="${LOGS_DIR}/spike11_${RUN_ID}_m_d_stdout.log"
     M_D_STDERR="${LOGS_DIR}/spike11_${RUN_ID}_m_d_stderr.log"
 
-    run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+    run_monitored_container "${CONTAINER_NAME_M_D}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
         "${M_D_STDOUT}" "${M_D_STDERR}" "${PROMPT_FILE}" \
-        podman run --rm \
-        --userns=keep-id \
-        -e HOME=/home/agy \
-        --secret "${PODMAN_SECRET_NAME},type=env,target=${AGY_API_KEY_ENV_NAME}" \
-        -v "${METHOD_D_HOME}:/home/agy:$(mount_opts rw)" \
-        -v "${WORKSPACE_D}:/workspace:$(mount_opts rw)" \
-        -w /workspace \
-        "${CONTAINER_IMAGE}" \
-        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+        podman run --name "${CONTAINER_NAME_M_D}" --rm -i \
+            --userns=keep-id \
+            -e HOME=/home/agy \
+            --secret "${PODMAN_SECRET_NAME},type=env,target=${AGY_API_KEY_ENV_NAME}" \
+            -v "${METHOD_D_HOME}:/home/agy:$(mount_opts rw)" \
+            -v "${WORKSPACE_D}:/workspace:$(mount_opts rw)" \
+            -w /workspace \
+            "${CONTAINER_IMAGE}" \
+            "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
 
     podman secret rm "${PODMAN_SECRET_NAME}" >/dev/null 2>&1 || true
     EXIT_D="${LAST_CMD_EXIT_CODE}"
@@ -417,7 +427,8 @@ else
     touch "${SECRETS_TEMP_PATTERNS}"
     chmod 600 "${SECRETS_TEMP_PATTERNS}"
 
-    python3 - "${AGY_HOST_TOKEN_FILE}" "${SECRETS_TEMP_PATTERNS}" <<'PYEOF'
+    PY_STATUS=0
+    python3 - "${AGY_HOST_TOKEN_FILE}" "${SECRETS_TEMP_PATTERNS}" <<'PYEOF' || PY_STATUS=$?
 import sys
 import json
 
@@ -459,13 +470,12 @@ with open(out_file, "w", encoding="utf-8") as f:
     for p in unique_patterns:
         f.write(p + "\n")
 PYEOF
-    PY_STATUS=$?
 
     if [[ ${PY_STATUS} -ne 0 ]] || [[ ! -s "${SECRETS_TEMP_PATTERNS}" ]]; then
-        echo "WARNING: Could not extract secrets of length >= 20 from token file." | tee -a "${LOG_FILE}"
-        LEAK_LOGS="none"
-        LEAK_RESULTS="none"
-        LEAK_GIT="none"
+        echo "FAIL: Failed to extract secrets of length >= 20 from token file (exit: ${PY_STATUS}, empty: $([[ -s "${SECRETS_TEMP_PATTERNS}" ]] && echo false || echo true))." | tee -a "${LOG_FILE}"
+        RESULT_STATUS="FAIL"
+        FAILURE_REASON="${FAILURE_REASON:+${FAILURE_REASON} }leak_check_not_performed"
+        AUTH_RESULTS["leakage_check"]="FAIL(leak_check_not_performed)"
     else
         # 3. 照合（対象ごとに一致あり / なし だけを出力）
         # (A) spike/phase0/.logs/
@@ -497,12 +507,30 @@ PYEOF
            [[ "${LEAK_RESULTS}" == "MATCH_FOUND" ]] || \
            [[ "${LEAK_GIT}" == "MATCH_FOUND" ]]; then
             RESULT_STATUS="FAIL"
-            FAILURE_REASON="secret_string_leaked"
+            FAILURE_REASON="${FAILURE_REASON:+${FAILURE_REASON} }secret_string_leaked"
+            AUTH_RESULTS["leakage_check"]="FAIL(secret_string_leaked)"
+        else
+            AUTH_RESULTS["leakage_check"]="PASS"
         fi
     fi
 
     # 一時パターンファイルを即座に削除
     rm -f "${SECRETS_TEMP_PATTERNS}"
+fi
+
+# ------------------------------------------------------------------------------
+# 残存コンテナ確認（修正P）
+# ------------------------------------------------------------------------------
+echo "--- Checking Residual Containers (name prefix: spike11_${RUN_ID}) ---" | tee -a "${LOG_FILE}"
+RESIDUAL_CONTAINERS=$(podman ps -a --filter "name=spike11_${RUN_ID}" --format '{{.ID}} {{.Names}}' 2>/dev/null || true)
+if [[ -n "${RESIDUAL_CONTAINERS}" ]]; then
+    echo "WARNING: Residual containers found: ${RESIDUAL_CONTAINERS}" | tee -a "${LOG_FILE}"
+    RESULT_STATUS="FAIL"
+    FAILURE_REASON="${FAILURE_REASON:+${FAILURE_REASON} }residual_containers_found"
+    AUTH_RESULTS["residual_containers"]="FAIL(Found:${RESIDUAL_CONTAINERS})"
+else
+    echo "PASS: No residual containers found." | tee -a "${LOG_FILE}"
+    AUTH_RESULTS["residual_containers"]="PASS"
 fi
 
 # その他の失敗判定

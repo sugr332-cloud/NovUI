@@ -52,9 +52,11 @@ rm -rf "${TEST_ROOT}"
 assert_safe_work_path "${TEST_ROOT}"
 
 AGY_JOB_HOME="${TEST_ROOT}/agy_home"
+AGY_OBSERVE_CONTAINER="spike02_${RUN_ID}_agy_observe"
 
-# trap 設定: 異常終了時でも使い捨てジョブ用HOMEを必ず削除
+# trap 設定: 異常終了時でも使い捨てコンテナとジョブ用HOMEを必ず削除
 cleanup_spike02_resources() {
+    podman rm -f "${AGY_OBSERVE_CONTAINER}" >/dev/null 2>&1 || true
     rm -rf "${AGY_JOB_HOME}" >/dev/null 2>&1 || true
 }
 trap cleanup_spike02_resources EXIT INT TERM
@@ -384,9 +386,9 @@ echo "Testing AGY CLI with safe prompt in unmounted common dir..." | tee -a "${L
 OBSERVE_STDOUT="${LOGS_DIR}/spike02_${RUN_ID}_observe_stdout.log"
 OBSERVE_STDERR="${LOGS_DIR}/spike02_${RUN_ID}_observe_stderr.log"
 
-run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+run_monitored_container "${AGY_OBSERVE_CONTAINER}" "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
     "${OBSERVE_STDOUT}" "${OBSERVE_STDERR}" "${PROMPT_OBSERVE_FILE}" \
-    podman run --rm \
+    podman run --name "${AGY_OBSERVE_CONTAINER}" --rm -i \
         --userns=keep-id \
         -e HOME=/home/agy \
         -v "${AGY_JOB_HOME}:/home/agy:$(mount_opts rw)" \
@@ -415,6 +417,19 @@ fi
 
 # 観察完了後、使い捨てジョブ用HOMEを削除
 rm -rf "${AGY_JOB_HOME}" 2>/dev/null || true
+
+# ------------------------------------------------------------------------------
+# 残存コンテナ確認（修正P）
+# ------------------------------------------------------------------------------
+echo "--- Checking Residual Containers (name prefix: spike02_${RUN_ID}) ---" | tee -a "${LOG_FILE}"
+RESIDUAL_CONTAINERS=$(podman ps -a --filter "name=spike02_${RUN_ID}" --format '{{.ID}} {{.Names}}' 2>/dev/null || true)
+if [[ -n "${RESIDUAL_CONTAINERS}" ]]; then
+    echo "WARNING: Residual containers found: ${RESIDUAL_CONTAINERS}" | tee -a "${LOG_FILE}"
+    ISOLATION_RESULTS["residual_containers"]="FAIL(Found:${RESIDUAL_CONTAINERS})"
+else
+    echo "PASS: No residual containers found." | tee -a "${LOG_FILE}"
+    ISOLATION_RESULTS["residual_containers"]="PASS"
+fi
 
 # ------------------------------------------------------------------------------
 # 結果判定・記録

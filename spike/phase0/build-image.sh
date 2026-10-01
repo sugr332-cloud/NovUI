@@ -82,10 +82,13 @@ cp "${SCRIPT_DIR}/Containerfile" "${BUILD_DIR}/Containerfile"
 # 5. バージョンとハッシュの採取
 AGY_SHA256="$(get_sha256 "${BUILD_DIR}/agy")"
 RAW_VERSION="$("${BUILD_DIR}/agy" --version 2>&1 || true)"
-AGY_VERSION="$(echo "${RAW_VERSION}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+echo "raw_version: ${RAW_VERSION}" | tee -a "${LOG_FILE}"
+
+# 数字とドットの並び（例: 1.2.13）の最初の1件を抽出
+AGY_VERSION="$(echo "${RAW_VERSION}" | grep -o -E '[0-9]+(\.[0-9]+)+' | head -n 1 || true)"
 
 if [[ -z "${AGY_VERSION}" ]]; then
-    echo "ERROR: Could not obtain version from agy binary." | tee -a "${LOG_FILE}"
+    echo "ERROR: Failed to extract numeric version (e.g. 1.2.13) from raw_version: '${RAW_VERSION}'." | tee -a "${LOG_FILE}"
     exit 1
 fi
 

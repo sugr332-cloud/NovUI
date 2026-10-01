@@ -242,6 +242,33 @@ run_monitored_command() {
 }
 
 # ------------------------------------------------------------------------------
+# 6.1 コンテナ監視付き実行（終了後に自動 podman rm -f で残存防止）
+#     引数: container_name total_timeout no_output_timeout stdout_log stderr_log stdin_file cmd...
+# ------------------------------------------------------------------------------
+run_monitored_container() {
+    local container_name="$1"
+    local total_timeout="$2"
+    local no_output_timeout="$3"
+    local stdout_log="$4"
+    local stderr_log="$5"
+    local stdin_file="$6"
+    shift 6
+    local cmd=("$@")
+
+    run_monitored_command \
+        "${total_timeout}" \
+        "${no_output_timeout}" \
+        "${stdout_log}" \
+        "${stderr_log}" \
+        "${stdin_file}" \
+        "${cmd[@]}"
+
+    # timeout の有無にかかわらずコンテナを強制削除（残存防止）
+    podman rm -f "${container_name}" >/dev/null 2>&1 || true
+    return 0
+}
+
+# ------------------------------------------------------------------------------
 # 7. AI CLI実行前後の git status 差分検査ヘルパー
 #    .work/, .logs/, docs/spike/results/ 以外に変更・未追跡ファイルがあれば UNSAFE を記録
 # ------------------------------------------------------------------------------
