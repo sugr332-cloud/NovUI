@@ -32,8 +32,8 @@ ensure_directories
 # ------------------------------------------------------------------------------
 TIMEOUT_ISOLATION_TEST=60
 
-# TODO: Humanが選択（事前にpodman pullを完了させておくこと）
-CONTAINER_IMAGE="" # 例: "fedora:latest"
+# TODO: build-image.sh の出力したタグを指定
+CONTAINER_IMAGE="novui-spike:agy-<バージョン>"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_ROOT="${WORK_DIR}/spike03"
@@ -47,8 +47,8 @@ RESULT_YAML="${RESULTS_DIR}/spike03_${RUN_ID}.yaml"
 
 echo "=== Spike-03: .git Protection Verification Started ===" | tee "${LOG_FILE}"
 
-if [[ -z "${CONTAINER_IMAGE}" ]]; then
-    echo "ERROR: CONTAINER_IMAGE is not set. Please set the variable at the top of the script." | tee -a "${LOG_FILE}"
+if [[ -z "${CONTAINER_IMAGE}" ]] || [[ "${CONTAINER_IMAGE}" == *"<バージョン>"* ]]; then
+    echo "ERROR: CONTAINER_IMAGE is not set correctly. Please run build-image.sh and specify the image tag (novui-spike:agy-<VERSION>)." | tee -a "${LOG_FILE}"
     exit 1
 fi
 
@@ -65,19 +65,22 @@ assert_safe_work_path "${TEST_WT_1}"
 assert_safe_work_path "${TEST_WT_2}"
 
 git init "${TEST_REPO}" >> "${LOG_FILE}" 2>&1
-(
-    cd "${TEST_REPO}"
-    git config user.name "Spike Test"
-    git config user.email "spike@example.com"
-    echo "# Initial" > README.md
-    git add README.md
-    git commit -m "initial commit" >> "${LOG_FILE}" 2>&1
-    git branch -M main
-    git worktree add -b test-branch-1 "${TEST_WT_1}" main >> "${LOG_FILE}" 2>&1
-    git worktree add -b test-branch-2 "${TEST_WT_2}" main >> "${LOG_FILE}" 2>&1
-)
+git -C "${TEST_REPO}" config user.name "Spike Test"
+git -C "${TEST_REPO}" config user.email "spike@example.com"
+echo "# Initial" > "${TEST_REPO}/README.md"
+git -C "${TEST_REPO}" add README.md
+git -C "${TEST_REPO}" commit -m "initial commit" >> "${LOG_FILE}" 2>&1
+git -C "${TEST_REPO}" branch -M main
+git -C "${TEST_REPO}" worktree add -b test-branch-1 "${TEST_WT_1}" main >> "${LOG_FILE}" 2>&1
+git -C "${TEST_REPO}" worktree add -b test-branch-2 "${TEST_WT_2}" main >> "${LOG_FILE}" 2>&1
 
-TEST_GIT_COMMON="$(cd "${TEST_REPO}" && git rev-parse --git-common-dir)"
+TEST_GIT_COMMON="$(git -C "${TEST_REPO}" rev-parse --path-format=absolute --git-common-dir)"
+
+# 取得直後に TEST_GIT_COMMON が spike/phase0/.work/ 配下であることを確認
+# （確認が通るまで hooks や config への書込みを一切行わない）
+assert_safe_work_path "${TEST_GIT_COMMON}"
+assert_safe_work_path "${TEST_GIT_COMMON}/hooks"
+
 # hooks のサンプル作成
 echo "#!/bin/sh" > "${TEST_GIT_COMMON}/hooks/post-commit"
 chmod +x "${TEST_GIT_COMMON}/hooks/post-commit"

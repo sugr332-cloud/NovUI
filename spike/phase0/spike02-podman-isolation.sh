@@ -27,27 +27,23 @@ source "${SCRIPT_DIR}/common.sh"
 ensure_host_environment
 ensure_directories
 
-# ------------------------------------------------------------------------------
-# 設定・変数定義
-# ------------------------------------------------------------------------------
 TIMEOUT_ISOLATION_TEST=60
+TIMEOUT_AGY_TOTAL=900
+TIMEOUT_NO_OUTPUT=180
 
-# TODO: Humanが選択（事前にpodman pullを完了させておくこと）
-CONTAINER_IMAGE="" # 例: "fedora:latest"
+# TODO: build-image.sh の出力したタグを指定
+CONTAINER_IMAGE="novui-spike:agy-<バージョン>"
 
 # SELinuxラベル設定（既定値は "Z"、"z" または "Z" または ""）
 # TODO: Spike-02の結果で確定
 MOUNT_LABEL="Z"
 
 # AGY CLI バイナリ設定（Git未マウント時の挙動観察用）
-# TODO: Spike-00の--help出力で確認してHumanが設定
-AGY_BIN="agy"
+AGY_BIN="/usr/local/bin/agy"
 AGY_NONINTERACTIVE_FLAGS="" # TODO: Spike-00の--help出力で確認 (例: --non-interactive 等)
 
-# 認証方式（Spike-11の結果に基づき設定）
-# TODO: Spike-11の結果からHumanが選択 (env / secret / ro_mount)
-AUTH_METHOD="env"
-AUTH_ENV_NAME="AGY_API_KEY"
+# 認証設定（Spike-11 方式Aのトークンファイルコピー方式）
+AGY_HOST_TOKEN_FILE="${AGY_HOST_TOKEN_FILE:-$HOME/.gemini/antigravity-cli/antigravity-oauth-token}"
 
 RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
 TEST_ROOT="${WORK_DIR}/spike02"
@@ -55,13 +51,21 @@ rm -rf "${TEST_ROOT}"
 # 使い捨てルートの安全性検証と作成
 assert_safe_work_path "${TEST_ROOT}"
 
+AGY_JOB_HOME="${TEST_ROOT}/agy_home"
+
+# trap 設定: 異常終了時でも使い捨てジョブ用HOMEを必ず削除
+cleanup_spike02_resources() {
+    rm -rf "${AGY_JOB_HOME}" >/dev/null 2>&1 || true
+}
+trap cleanup_spike02_resources EXIT INT TERM
+
 LOG_FILE="${LOGS_DIR}/spike02_${RUN_ID}.log"
 RESULT_YAML="${RESULTS_DIR}/spike02_${RUN_ID}.yaml"
 
 echo "=== Spike-02: Podman Isolation Verification Started ===" | tee "${LOG_FILE}"
 
-if [[ -z "${CONTAINER_IMAGE}" ]]; then
-    echo "ERROR: CONTAINER_IMAGE is not set. Please set the variable at the top of the script." | tee -a "${LOG_FILE}"
+if [[ -z "${CONTAINER_IMAGE}" ]] || [[ "${CONTAINER_IMAGE}" == *"<バージョン>"* ]]; then
+    echo "ERROR: CONTAINER_IMAGE is not set correctly. Please run build-image.sh and specify the image tag (novui-spike:agy-<VERSION>)." | tee -a "${LOG_FILE}"
     exit 1
 fi
 
@@ -342,6 +346,18 @@ echo "--- 5. Observing AGY/Git behavior when Git common dir is NOT mounted ---" 
 AGY_OBSERVE_WORK="${TEST_ROOT}/agy_git_observe"
 assert_safe_work_path "${AGY_OBSERVE_WORK}"
 
+# 使い捨てジョブ用HOMEの準備（Spike-11 方式Aの構成）
+rm -rf "${AGY_JOB_HOME}"
+assert_safe_work_path "${AGY_JOB_HOME}"
+mkdir -p "${AGY_JOB_HOME}/.gemini/antigravity-cli"
+chmod 700 "${AGY_JOB_HOME}/.gemini" "${AGY_JOB_HOME}/.gemini/antigravity-cli"
+if [[ -f "${AGY_HOST_TOKEN_FILE}" ]]; then
+    cp "${AGY_HOST_TOKEN_FILE}" "${AGY_JOB_HOME}/.gemini/antigravity-cli/antigravity-oauth-token"
+    chmod 600 "${AGY_JOB_HOME}/.gemini/antigravity-cli/antigravity-oauth-token"
+else
+    echo "WARNING: AGY_HOST_TOKEN_FILE not found at '${AGY_HOST_TOKEN_FILE}'." | tee -a "${LOG_FILE}"
+fi
+
 # 模擬 .git 参照ファイル（参照先はコンテナ外のため存在しない）
 echo "gitdir: /nonexistent/git/common/dir" > "${AGY_OBSERVE_WORK}/.git"
 echo "initial text" > "${AGY_OBSERVE_WORK}/draft.md"
@@ -351,24 +367,35 @@ find "${AGY_OBSERVE_WORK}" -type f | sort > "${FILES_BEFORE}"
 DOT_GIT_HASH_BEFORE="$(get_sha256 "${AGY_OBSERVE_WORK}/.git")"
 
 SAFE_GIT_PROMPT="git status を実行して結果を1行で報告してください。ファイルは変更しないでください。"
+PROMPT_OBSERVE_FILE="${TEST_ROOT}/prompt_observe.txt"
+echo "${SAFE_GIT_PROMPT}" > "${PROMPT_OBSERVE_FILE}"
+chmod 600 "${PROMPT_OBSERVE_FILE}"
 
-OBSERVE_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
+echo "Checking git status behavior directly inside container..." | tee -a "${LOG_FILE}"
+GIT_DIRECT_OUT=$(timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
     --userns=keep-id \
     -v "${AGY_OBSERVE_WORK}:/workspace:$(mount_opts rw)" \
     -w /workspace \
     "${CONTAINER_IMAGE}" \
-    sh -c "
-        echo '--- Checking git status behavior ---'
-        git status 2>&1 || echo 'GIT_COMMAND_FAILED_EXPECTED'
-        if command -v '${AGY_BIN}' >/dev/null 2>&1; then
-            echo '--- Testing AGY CLI with safe prompt in unmounted common dir ---'
-            echo '${SAFE_GIT_PROMPT}' | '${AGY_BIN}' ${AGY_NONINTERACTIVE_FLAGS} 2>&1 || echo 'AGY_EXEC_FAILED'
-        else
-            echo 'AGY_BIN not found inside container'
-        fi
-    " 2>&1 || true)
+    sh -c "git status 2>&1 || echo 'GIT_COMMAND_FAILED_EXPECTED'" 2>&1 || true)
+echo "[Direct Git Status Output]: ${GIT_DIRECT_OUT}" | tee -a "${LOG_FILE}"
 
-echo "[AGY/Git Observation Output]: ${OBSERVE_OUT}" | tee -a "${LOG_FILE}"
+echo "Testing AGY CLI with safe prompt in unmounted common dir..." | tee -a "${LOG_FILE}"
+OBSERVE_STDOUT="${LOGS_DIR}/spike02_${RUN_ID}_observe_stdout.log"
+OBSERVE_STDERR="${LOGS_DIR}/spike02_${RUN_ID}_observe_stderr.log"
+
+run_monitored_command "${TIMEOUT_AGY_TOTAL}" "${TIMEOUT_NO_OUTPUT}" \
+    "${OBSERVE_STDOUT}" "${OBSERVE_STDERR}" "${PROMPT_OBSERVE_FILE}" \
+    podman run --rm \
+        --userns=keep-id \
+        -e HOME=/home/agy \
+        -v "${AGY_JOB_HOME}:/home/agy:$(mount_opts rw)" \
+        -v "${AGY_OBSERVE_WORK}:/workspace:$(mount_opts rw)" \
+        -w /workspace \
+        "${CONTAINER_IMAGE}" \
+        "${AGY_BIN}" ${AGY_NONINTERACTIVE_FLAGS}
+
+echo "AGY Observation Completed: Exit code ${LAST_CMD_EXIT_CODE}, Duration: ${LAST_CMD_DURATION}s" | tee -a "${LOG_FILE}"
 
 FILES_AFTER="${TEST_ROOT}/observe_files_after.txt"
 find "${AGY_OBSERVE_WORK}" -type f | sort > "${FILES_AFTER}"
@@ -385,6 +412,9 @@ else
     echo "WARNING: .git reference pointer was modified or recreated!" | tee -a "${LOG_FILE}"
     ISOLATION_RESULTS["git_unmounted_observation"]="RECORDED(PointerAltered)"
 fi
+
+# 観察完了後、使い捨てジョブ用HOMEを削除
+rm -rf "${AGY_JOB_HOME}" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 結果判定・記録
