@@ -1,6 +1,7 @@
 """Tests for novui.yamlio module."""
 
 from datetime import datetime
+import math
 from pathlib import Path
 import pytest
 import yaml
@@ -116,3 +117,52 @@ def test_write_yaml_atomic_and_rollback_on_failure(tmp_path: Path) -> None:
     assert load_yaml(target) == updated_data
     remaining_temp_files = list(tmp_path.glob(".tmp_*"))
     assert remaining_temp_files == []
+
+
+def test_yaml12_numeric_resolvers() -> None:
+    # 12:30、1:20:30.5、0755、007、1_000、0x1F、0o17、0b101 がすべて文字列
+    str_samples = [
+        "12:30",
+        "1:20:30.5",
+        "0755",
+        "007",
+        "1_000",
+        "0x1F",
+        "0o17",
+        "0b101",
+    ]
+    for s in str_samples:
+        loaded = loads_yaml(f"val: {s}")["val"]
+        assert isinstance(loaded, str), f"Expected str for {s!r}, got {type(loaded).__name__}: {loaded!r}"
+
+    # 0、42、-7、+3 が int
+    int_samples = {"v0": "0", "v1": "42", "v2": "-7", "v3": "+3"}
+    for k, s in int_samples.items():
+        loaded = loads_yaml(f"{k}: {s}")[k]
+        assert isinstance(loaded, int), f"Expected int for {s!r}, got {type(loaded).__name__}: {loaded!r}"
+
+    # 1.5、-0.5、.5、1.0e3、.inf、-.inf が float、.nan が nan
+    float_samples = {
+        "f1": ("1.5", 1.5),
+        "f2": ("-0.5", -0.5),
+        "f3": (".5", 0.5),
+        "f4": ("1.0e3", 1000.0),
+        "f5": (".inf", float("inf")),
+        "f6": ("-.inf", float("-inf")),
+    }
+    for k, (s, expected) in float_samples.items():
+        loaded = loads_yaml(f"{k}: {s}")[k]
+        assert isinstance(loaded, float), f"Expected float for {s!r}, got {type(loaded).__name__}"
+        assert loaded == expected
+
+    nan_val = loads_yaml("f7: .nan")["f7"]
+    assert isinstance(nan_val, float)
+    assert math.isnan(nan_val)
+
+    # dumps_yaml で書いた {"t": "12:30", "n": 42} を読み戻すと型が保たれる
+    original = {"t": "12:30", "n": 42}
+    dumped = dumps_yaml(original)
+    roundtripped = loads_yaml(dumped)
+    assert roundtripped == original
+    assert isinstance(roundtripped["t"], str)
+    assert isinstance(roundtripped["n"], int)

@@ -23,10 +23,15 @@ NovuiYamlLoader.yaml_implicit_resolvers = {
     k: [list(item) for item in v] for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()
 }
 
-# Remove timestamp resolver from all characters
+# Remove timestamp, int, and float resolvers from all characters
 for ch, res_list in list(NovuiYamlLoader.yaml_implicit_resolvers.items()):
     NovuiYamlLoader.yaml_implicit_resolvers[ch] = [
-        item for item in res_list if item[0] != "tag:yaml.org,2002:timestamp"
+        item for item in res_list
+        if item[0] not in (
+            "tag:yaml.org,2002:timestamp",
+            "tag:yaml.org,2002:int",
+            "tag:yaml.org,2002:float",
+        )
     ]
 
 # Restrict bool resolver to only true, True, TRUE, false, False, FALSE
@@ -40,6 +45,32 @@ for ch, res_list in list(NovuiYamlLoader.yaml_implicit_resolvers.items()):
         else:
             new_list.append((tag, regex))
     NovuiYamlLoader.yaml_implicit_resolvers[ch] = new_list
+
+# YAML 1.2 equivalent int and float resolvers
+_YAML12_INT_RE = re.compile(r"^[-+]?(0|[1-9][0-9]*)$")
+_YAML12_FLOAT_RES = [
+    re.compile(r"^[-+]?(\.[0-9]+|[0-9]+\.[0-9]*)([eE][-+]?[0-9]+)?$"),
+    re.compile(r"^[-+]?\.(inf|Inf|INF)$"),
+    re.compile(r"^\.(nan|NaN|NAN)$"),
+]
+
+_INT_CHARS = set("-+0123456789")
+_FLOAT_CHARS_1 = set("-+.0123456789")
+_FLOAT_CHARS_2 = set("-+.")
+_FLOAT_CHARS_3 = set(".")
+_ALL_NUM_CHARS = _INT_CHARS | _FLOAT_CHARS_1 | _FLOAT_CHARS_2 | _FLOAT_CHARS_3
+
+for _ch in _ALL_NUM_CHARS:
+    if _ch not in NovuiYamlLoader.yaml_implicit_resolvers:
+        NovuiYamlLoader.yaml_implicit_resolvers[_ch] = []
+    if _ch in _INT_CHARS:
+        NovuiYamlLoader.yaml_implicit_resolvers[_ch].append(("tag:yaml.org,2002:int", _YAML12_INT_RE))
+    if _ch in _FLOAT_CHARS_1:
+        NovuiYamlLoader.yaml_implicit_resolvers[_ch].append(("tag:yaml.org,2002:float", _YAML12_FLOAT_RES[0]))
+    if _ch in _FLOAT_CHARS_2:
+        NovuiYamlLoader.yaml_implicit_resolvers[_ch].append(("tag:yaml.org,2002:float", _YAML12_FLOAT_RES[1]))
+    if _ch in _FLOAT_CHARS_3:
+        NovuiYamlLoader.yaml_implicit_resolvers[_ch].append(("tag:yaml.org,2002:float", _YAML12_FLOAT_RES[2]))
 
 # 2. Copy constructors and register mapping constructor that rejects duplicates
 NovuiYamlLoader.yaml_constructors = yaml.SafeLoader.yaml_constructors.copy()
