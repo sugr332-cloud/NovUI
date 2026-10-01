@@ -1,0 +1,225 @@
+=== Spike-11: AGY Auth Delivery Verification Started ===
+--- Method A: Writable Token Copy Mount + Launch Time Measurement ---
+Container AGY Version Before Run 1: 1.2.14
+Executing Method A - Run 1 (Cold Start)...
+Method A Run 1: Exit code 0, Duration: 12s
+Container AGY Version After Run 1: 1.2.14
+Update-related output lines in Run 1: /home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.logs/spike11_run_20261001_215621_m_a_run1_stdout.log:0
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.logs/spike11_run_20261001_215621_m_a_run1_stderr.log:0
+0
+--- Method A Run 1 Directory Tree and Sizes ---
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/annotations
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/annotations/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b.pbtxt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/antigravity-oauth-token
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/bin
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/bin/webm_encoder
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript/00000000.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript_full
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript_full/00000000.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/transcript.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/transcript_full.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.user_uploaded
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/scratch
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/.checksum
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/keep.txt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/json_configs.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/plugins.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/rules.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/skills.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/app.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/cli.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/ide.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/sdk.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/automation
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/automation/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/generative_ui
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/generative_ui/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/migrate-workflows
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/migrate-workflows/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/permissioned-github
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/permissioned-github/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/plugin
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/plugin/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/assets
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/assets/logo.svg
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/plugin.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/app.js
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/index.html
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/main.mjs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/package.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/sidecar.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/styles.css
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-plugin-navigation
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-plugin-navigation/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache/default_project_id.txt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache/last_conversations.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache/onboarding.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cli.log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversation_summaries.db
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversations
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversations/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b.db
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/crashes
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/implicit
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/implicit/e5af36c3-c57c-442e-bf70-c6a61f647c38.pb
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/installation_id
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/jetbox_summaries_proto.pb
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/jetski_state.pbtxt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/log/cli-20261001_125624.log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/presence
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/presence/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b.lock
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/.migrated
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/mcp_config.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/projects
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/projects/default-cli-project.json
+Executing Method A - Run 2 (Warm Start, same job HOME)...
+Method A Run 2: Exit code 0, Duration: 9s
+--- Method A Run 2 Directory Tree and Sizes ---
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/annotations
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/annotations/026ed7a6-2393-4df4-a5fd-10a2685338ef.pbtxt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/annotations/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b.pbtxt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/antigravity-oauth-token
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/bin
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/bin/webm_encoder
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/chunks
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/chunks/transcript
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/chunks/transcript/00000000.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/chunks/transcript_full
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/chunks/transcript_full/00000000.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/transcript.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.system_generated/logs/transcript_full.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/.user_uploaded
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/026ed7a6-2393-4df4-a5fd-10a2685338ef/scratch
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript/00000000.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript_full
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/chunks/transcript_full/00000000.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/transcript.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.system_generated/logs/transcript_full.jsonl
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/.user_uploaded
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/brain/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b/scratch
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/.checksum
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/keep.txt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/json_configs.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/plugins.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/rules.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/skills.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/app.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/cli.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/ide.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/antigravity_guide/references/sdk.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/automation
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/automation/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/generative_ui
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/generative_ui/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/migrate-workflows
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/migrate-workflows/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/permissioned-github
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/permissioned-github/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/plugin
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/plugin/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/assets
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/assets/logo.svg
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/plugin.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/app.js
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/index.html
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/main.mjs
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/package.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/sidecar.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-extension/references/template/sidecars/panel/styles.css
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-plugin-navigation
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/builtin/skills/ui-plugin-navigation/SKILL.md
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache/default_project_id.txt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache/last_conversations.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cache/onboarding.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/cli.log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversation_summaries.db
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversations
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversations/026ed7a6-2393-4df4-a5fd-10a2685338ef.db
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/conversations/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b.db
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/crashes
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/implicit
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/implicit/e5af36c3-c57c-442e-bf70-c6a61f647c38.pb
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/installation_id
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/jetbox_summaries_proto.pb
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/jetski_state.pbtxt
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/log/cli-20261001_125624.log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/log/cli-20261001_125636.log
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/presence
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/presence/026ed7a6-2393-4df4-a5fd-10a2685338ef.lock
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/antigravity-cli/presence/2c25dd34-3e0d-4738-ba30-2e62ee69fd8b.lock
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/.migrated
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/mcp_config.json
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/projects
+/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike11/method_a/home/.gemini/config/projects/default-cli-project.json
+Observation: Token copy SHA-256 unchanged.
+PASS: Method A succeeded on both runs.
+--- Host Baseline Measurement ---
+Host Baseline: Exit code 0, Duration: 9s
+--- Method B: Read-Only Token Copy Mount ---
+Method B: Exit code 0, Duration: 10s
+PASS: Method B succeeded (RO Warning: false).
+--- Methods C & D: Skipped (AGY_API_KEY_ENV_NAME is not set) ---
+--- Leakage Inspection (Post-Cleanup) ---
+PASS: All job HOME directories removed successfully.
+Secret leakage in .logs: NO_MATCH
+Secret leakage in docs/results: NO_MATCH
+Secret leakage in tracked git files: NO_MATCH
+--- Checking Residual Containers (name prefix: spike11_run_20261001_215621) ---
+PASS: No residual containers found.
+=== Spike-11 Completed: PASS ===
