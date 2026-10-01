@@ -1,0 +1,57 @@
+=== Spike-03: .git Protection Verification Started ===
+--- Initializing disposable test repository and 2 independent worktrees ---
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/
+[master (root-commit) e151526] initial commit
+ 1 file changed, 1 insertion(+)
+ create mode 100644 README.md
+Preparing worktree (new branch 'test-branch-1')
+HEAD is now at e151526 initial commit
+Preparing worktree (new branch 'test-branch-2')
+HEAD is now at e151526 initial commit
+--- Config 1: Git common directory NOT mounted (using worktree 1) ---
+--- Checking .git pointer file ---
+gitdir: /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/worktrees/test_worktree_1
+--- Attempting write to .git pointer file ---
+POINTER_WRITE_SUCCEEDED
+--- Attempting git status inside container ---
+fatal: not a git repository: (null)
+GIT_COMMAND_FAILED_AS_EXPECTED
+--- Config 2: Git common directory mounted READ-ONLY (:ro) (using worktree 2) ---
+--- Attempting write to .git/config ---
+CONFIG_WRITE_BLOCKED
+--- Attempting write to hooks ---
+HOOK_WRITE_BLOCKED
+--- Attempting write to worktrees dir ---
+sh: line 3: /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/config: Read-only file system
+sh: line 5: /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/hooks/post-commit: Read-only file system
+touch: cannot touch '/var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/worktrees/test-tamper': Read-only file system
+WORKTREES_DIR_WRITE_BLOCKED
+--- Attempting git status with RO common-dir ---
+On branch test-branch-2
+nothing to commit, working tree clean
+--- Comparing Git Common Directory Hashes (Must be identical) ---
+--- Comparing Worktree Pointer Hashes (Reference files inside worktree) ---
+CRITICAL ERROR: Git common directory files (.git/config, hooks, worktrees) were modified!
+--- /home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/common_hashes_before.txt	2026-10-01 22:05:56.308092749 +0900
++++ /home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/common_hashes_after.txt	2026-10-01 22:05:56.954080060 +0900
+@@ -1,4 +1,4 @@
+-# Common Git Hashes: Before Tests
++# Common Git Hashes: After Tests
+ e03de1dcd31ab4d2e7436844296e6896663cf9406db385d42ce055ca6bcff8d7  /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/config
+ 8bf35846bc3d90db12f711dd961292eb1c617b6f62c2c4e702706b71f2a897b2  /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/hooks/applypatch-msg.sample
+ 01fa6ffa6b38523d58ff05cac0caaa8e76ef48db467749921395519b43b495af  /var/home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike03/test_repo/.git/hooks/commit-msg.sample
+OBSERVATION: Worktree .git reference pointer was writable within worktree as expected when worktree is rw mounted.
+=== Spike-03 Completed: FAIL ===
