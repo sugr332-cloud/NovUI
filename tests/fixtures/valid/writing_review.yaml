@@ -1,0 +1,11 @@
+type: "writing_review"
+chapter_id: "ch-001"
+findings:
+  - id: "W1"
+    category: "cliche"
+    anchor:
+      text: "絵に描いたような青空"
+      before: "見上げるとそこには、"
+      after: "が広がっていた。"
+    message: "使い古された表現です。"
+    suggestion: "初秋の澄んだ空、などに変更することを検討してください。"

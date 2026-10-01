@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/integrity_review.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["WARNING", "STOP"]
+        },
+        "anchor": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/anchor" },
+            { "type": "null" }
+          ]
+        },
+        "message": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["severity", "anchor", "message", "evidence"]
+    },
+    "check_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result": { "$ref": "common.schema.json#/$defs/result" },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        }
+      },
+      "required": ["result", "findings"]
+    }
+  },
+  "properties": {
+    "type": { "const": "integrity_review" },
+    "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "result": { "$ref": "common.schema.json#/$defs/result" },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "character": { "$ref": "#/$defs/check_item" },
+        "world": { "$ref": "#/$defs/check_item" },
+        "timeline": { "$ref": "#/$defs/check_item" },
+        "plot": { "$ref": "#/$defs/check_item" },
+        "foreshadowing": { "$ref": "#/$defs/check_item" },
+        "plan_compliance": { "$ref": "#/$defs/check_item" },
+        "undefined_setting": { "$ref": "#/$defs/check_item" }
+      },
+      "required": [
+        "character",
+        "world",
+        "timeline",
+        "plot",
+        "foreshadowing",
+        "plan_compliance",
+        "undefined_setting"
+      ]
+    }
+  },
+  "required": ["type", "chapter_id", "result", "checks"]
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/instruction_routing.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "instruction_routing" },
+    "instruction_id": { "$ref": "common.schema.json#/$defs/instruction_id" },
+    "scope": {
+      "type": "string",
+      "enum": ["range", "chapter", "plan", "setting", "fix", "redline"]
+    },
+    "chapter_id": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/chapter_id" },
+        { "type": "null" }
+      ]
+    },
+    "instruction": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "scope_mismatch": { "type": "boolean" },
+    "scope_mismatch_reason": { "type": ["string", "null"] },
+    "proposed_jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_type": { "$ref": "common.schema.json#/$defs/job_type" },
+          "summary": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "depends_on": {
+            "oneOf": [
+              { "type": "integer", "minimum": 0 },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["job_type", "summary", "depends_on"]
+      }
+    },
+    "impact": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "reason": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        },
+        "required": ["target", "reason"]
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    }
+  },
+  "required": [
+    "type",
+    "instruction_id",
+    "scope",
+    "chapter_id",
+    "instruction",
+    "scope_mismatch",
+    "scope_mismatch_reason",
+    "proposed_jobs",
+    "impact",
+    "questions"
+  ]
+}

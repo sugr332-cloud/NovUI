@@ -1,0 +1,8 @@
+type: "state_patch"
+target: "settings/characters.yaml"
+base_hash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+operations:
+  - op: "add"
+    path: "/C001/status"
+    value: "旅立ち"
+reason: "第1章の進行に合わせて状態を更新"

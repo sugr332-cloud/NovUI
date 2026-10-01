@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/state_patch.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["add", "replace", "test"]
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(/.*)?$"
+            },
+            "value": true
+          },
+          "required": ["op", "path", "value"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "remove" },
+            "path": {
+              "type": "string",
+              "pattern": "^(/.*)?$"
+            }
+          },
+          "required": ["op", "path"]
+        }
+      ]
+    }
+  },
+  "properties": {
+    "type": { "const": "state_patch" },
+    "target": { "$ref": "common.schema.json#/$defs/relpath" },
+    "base_hash": { "$ref": "common.schema.json#/$defs/sha256" },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "reason": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+  },
+  "required": ["type", "target", "base_hash", "operations", "reason"]
+}

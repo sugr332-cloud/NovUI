@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/summary.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "summary" },
+    "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/character_id" },
+          "location": { "type": ["string", "null"] },
+          "knowledge_added": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+          },
+          "items_gained": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+          },
+          "items_lost": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+          },
+          "condition": { "type": ["string", "null"] },
+          "relationship_changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "with": { "$ref": "common.schema.json#/$defs/character_id" },
+                "change": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+              },
+              "required": ["with", "change"]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "location",
+          "knowledge_added",
+          "items_gained",
+          "items_lost",
+          "condition",
+          "relationship_changes"
+        ]
+      }
+    },
+    "world_impacts": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    },
+    "foreshadowing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "status": {
+            "type": "string",
+            "enum": ["planned", "active", "resolved", "cancelled"]
+          },
+          "note": { "type": ["string", "null"] }
+        },
+        "required": ["id", "status", "note"]
+      }
+    },
+    "next_start_state": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+  },
+  "required": [
+    "type",
+    "chapter_id",
+    "events",
+    "characters",
+    "world_impacts",
+    "foreshadowing",
+    "next_start_state"
+  ]
+}

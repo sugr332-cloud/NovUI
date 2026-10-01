@@ -1,0 +1,29 @@
+type: "plan"
+chapter_id: "ch-001"
+pov: "三人称視点"
+style_notes:
+  - "硬質な文体"
+target_chars:
+  min: 3000
+  max: 5000
+context:
+  past_summaries: []
+  past_drafts: []
+  settings:
+    - "settings/world.md"
+scenes:
+  - id: "S1"
+    summary: "主人公の旅立ちの朝"
+    actions:
+      - "荷造りをする"
+    characters:
+      - "C001"
+    settings_used:
+      - "主人公の部屋"
+    foreshadowing:
+      - "古びた鍵"
+prohibitions:
+  - "現代俗語の使用禁止"
+connection:
+  from_previous: "冒頭につきなし"
+  to_next: "街道への出発"

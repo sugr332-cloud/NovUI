@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/chapter.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "title": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "state": { "$ref": "common.schema.json#/$defs/chapter_state" },
+    "review_required": { "type": "boolean" },
+    "review_reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "previous_chapter_changed",
+              "setting_changed",
+              "external_change"
+            ]
+          },
+          "detail": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "at": { "$ref": "common.schema.json#/$defs/datetime" }
+        },
+        "required": ["code", "detail", "at"]
+      }
+    },
+    "validation_skipped": { "type": "boolean" },
+    "last_job": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/job_id" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "state",
+    "review_required",
+    "review_reasons",
+    "validation_skipped",
+    "last_job"
+  ]
+}

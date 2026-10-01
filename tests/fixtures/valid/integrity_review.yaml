@@ -1,0 +1,25 @@
+type: "integrity_review"
+chapter_id: "ch-001"
+result: "PASS"
+checks:
+  character:
+    result: "PASS"
+    findings: []
+  world:
+    result: "PASS"
+    findings: []
+  timeline:
+    result: "PASS"
+    findings: []
+  plot:
+    result: "PASS"
+    findings: []
+  foreshadowing:
+    result: "PASS"
+    findings: []
+  plan_compliance:
+    result: "PASS"
+    findings: []
+  undefined_setting:
+    result: "PASS"
+    findings: []

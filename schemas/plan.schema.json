@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/plan.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "plan" },
+    "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "pov": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "style_notes": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    },
+    "target_chars": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["min", "max"]
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "past_summaries": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/chapter_id" }
+        },
+        "past_drafts": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/chapter_id" }
+        },
+        "settings": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/relpath" }
+        }
+      },
+      "required": ["past_summaries", "past_drafts", "settings"]
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^S[0-9]+$" },
+          "summary": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "actions": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+          },
+          "characters": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/character_id" }
+          },
+          "settings_used": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+          },
+          "foreshadowing": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+          }
+        },
+        "required": [
+          "id",
+          "summary",
+          "actions",
+          "characters",
+          "settings_used",
+          "foreshadowing"
+        ]
+      }
+    },
+    "prohibitions": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    },
+    "connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from_previous": { "type": "string" },
+        "to_next": { "type": "string" }
+      },
+      "required": ["from_previous", "to_next"]
+    }
+  },
+  "required": [
+    "type",
+    "chapter_id",
+    "pov",
+    "style_notes",
+    "target_chars",
+    "context",
+    "scenes",
+    "prohibitions",
+    "connection"
+  ]
+}

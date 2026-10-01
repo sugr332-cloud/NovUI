@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/requests.schema.json",
+  "type": "array",
+  "items": {
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": { "const": "request" },
+          "job_id": { "$ref": "common.schema.json#/$defs/job_id" },
+          "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+          "kind": {
+            "type": "string",
+            "enum": ["undefined_setting", "conflict", "question"]
+          },
+          "target": { "type": ["string", "null"] },
+          "message": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        },
+        "required": [
+          "type",
+          "job_id",
+          "chapter_id",
+          "kind",
+          "target",
+          "message"
+        ]
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": { "const": "resolution" },
+          "request_index": { "type": "integer", "minimum": 0 },
+          "decision": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "resolved_at": { "$ref": "common.schema.json#/$defs/datetime" }
+        },
+        "required": ["type", "request_index", "decision", "resolved_at"]
+      }
+    ]
+  }
+}

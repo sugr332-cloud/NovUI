@@ -1,0 +1,21 @@
+type: "summary"
+chapter_id: "ch-001"
+events:
+  - "主人公が旅立ちを決意した"
+characters:
+  - id: "C001"
+    location: "主人公の部屋"
+    knowledge_added:
+      - "父の残した地図"
+    items_gained:
+      - "古びた鍵"
+    items_lost: []
+    condition: "健康"
+    relationship_changes: []
+world_impacts:
+  - "村からの旅立ち"
+foreshadowing:
+  - id: "F1"
+    status: "active"
+    note: "鍵の行方"
+next_start_state: "主人公が村の出口に立っている状態"

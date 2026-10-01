@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/review.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "job_id": { "$ref": "common.schema.json#/$defs/job_id" },
+    "base_commit": { "$ref": "common.schema.json#/$defs/commit" },
+    "mechanical": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/check_result" }
+    },
+    "integrity": {
+      "oneOf": [
+        { "$ref": "integrity_review.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "writing": {
+      "oneOf": [
+        { "$ref": "writing_review.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "decision": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["CONTINUE", "OVERRIDE", "REQUEST_FIX", "CANCEL"]
+            },
+            "reason": { "type": ["string", "null"] },
+            "decided_at": { "$ref": "common.schema.json#/$defs/datetime" }
+          },
+          "required": ["action", "reason", "decided_at"]
+        }
+      ]
+    }
+  },
+  "required": [
+    "chapter_id",
+    "job_id",
+    "base_commit",
+    "mechanical",
+    "integrity",
+    "writing",
+    "decision"
+  ]
+}

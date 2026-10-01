@@ -1,0 +1,10 @@
+- type: "request"
+  job_id: "job-101"
+  chapter_id: "ch-001"
+  kind: "question"
+  target: null
+  message: "隣町の名称が決まっていません。"
+- type: "resolution"
+  request_index: 0
+  decision: "隣町の名前は『オルド』とします。"
+  resolved_at: "2026-10-01T23:05:00+09:00"

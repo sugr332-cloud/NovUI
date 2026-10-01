@@ -1,0 +1,9 @@
+approval_id: "A-0001"
+source: "instruction"
+instruction_id: "INS-0001"
+job_id: null
+patch_sha256: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+targets:
+  - "settings/world.md"
+approved_by: "human"
+approved_at: "2026-10-01T23:10:00+09:00"

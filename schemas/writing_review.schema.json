@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/writing_review.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "writing_review" },
+    "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^W[0-9]+$" },
+          "category": {
+            "type": "string",
+            "enum": [
+              "unnatural",
+              "redundant",
+              "over_explained",
+              "monotonous_endings",
+              "cliche",
+              "other"
+            ]
+          },
+          "anchor": { "$ref": "common.schema.json#/$defs/anchor" },
+          "message": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "suggestion": { "type": ["string", "null"] }
+        },
+        "required": ["id", "category", "anchor", "message", "suggestion"]
+      }
+    }
+  },
+  "required": ["type", "chapter_id", "findings"]
+}

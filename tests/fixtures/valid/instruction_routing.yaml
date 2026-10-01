@@ -1,0 +1,15 @@
+type: "instruction_routing"
+instruction_id: "INS-0001"
+scope: "chapter"
+chapter_id: "ch-001"
+instruction: "第1章の執筆を進めてください"
+scope_mismatch: false
+scope_mismatch_reason: null
+proposed_jobs:
+  - job_type: "draft"
+    summary: "第1章の本文執筆"
+    depends_on: null
+impact:
+  - target: "chapters/ch-001/draft.md"
+    reason: "本文作成"
+questions: []

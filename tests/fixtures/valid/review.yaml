@@ -1,0 +1,13 @@
+chapter_id: "ch-001"
+job_id: "job-100"
+base_commit: "0123456789abcdef0123456789abcdef01234567"
+mechanical:
+  - name: "cli_output"
+    status: "PASS"
+    details: []
+integrity: null
+writing: null
+decision:
+  action: "CONTINUE"
+  reason: "特に問題ありません"
+  decided_at: "2026-10-01T23:00:00+09:00"
