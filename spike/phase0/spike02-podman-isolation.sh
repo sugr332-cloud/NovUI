@@ -149,14 +149,25 @@ timeout "${TIMEOUT_ISOLATION_TEST}s" podman run --rm \
 
 echo "mountinfo recorded to: ${MOUNTINFO_LOG}" | tee -a "${LOG_FILE}"
 
-# 意図しないホストパス（Homeやホストルート等）が露出していないか検査
-# 許可されるホストマウントは MOCK_WORKTREE のみ
+# 修正X: 意図しないホストパスが露出していないか検査
+# 第4フィールド（root）と第5フィールド（mount_point）のみを使って判定
 UNINTENDED_MOUNTS=""
-while IFS= read -r line; do
-    # mountinfo の形式: 5番目フィールドがコンテナ内マウントポイント
-    # 例: ... /workspace ...
-    if [[ "${line}" == *"${HOME}"* ]] && [[ "${line}" != *"${MOCK_WORKTREE}"* ]]; then
-        UNINTENDED_MOUNTS="${UNINTENDED_MOUNTS} ${line}"
+CURRENT_USER="${USER:-$(id -un)}"
+while read -r _ _ _ mnt_root mnt_dest _rest; do
+    [[ -z "${mnt_root}" || -z "${mnt_dest}" ]] && continue
+    # コンテナ標準マウント先の除外
+    case "${mnt_dest}" in
+        /proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/etc/hosts|/etc/hostname|/etc/resolv.conf|/run/.containerenv|/run/secrets|/run/secrets/*|/dev/shm)
+            continue
+            ;;
+    esac
+    # 許可された作業領域マウントの除外
+    if [[ "${mnt_dest}" == "/workspace" ]]; then
+        continue
+    fi
+    # ホストユーザー領域の露出判定（/home, /var/home, またはユーザー名を含むパス）
+    if [[ "${mnt_root}" == "/home"* ]] || [[ "${mnt_root}" == "/var/home"* ]] || [[ -n "${CURRENT_USER}" && "${mnt_root}" == *"${CURRENT_USER}"* ]]; then
+        UNINTENDED_MOUNTS="${UNINTENDED_MOUNTS}"$'\n'"  root: ${mnt_root} -> dest: ${mnt_dest}"
     fi
 done < "${MOUNTINFO_LOG}"
 
@@ -164,7 +175,7 @@ if [[ -z "${UNINTENDED_MOUNTS}" ]]; then
     echo "PASS: No unintended host paths detected in mountinfo." | tee -a "${LOG_FILE}"
     ISOLATION_RESULTS["mountinfo_inspection"]="PASS"
 else
-    echo "WARNING: Unintended host mounts detected: ${UNINTENDED_MOUNTS}" | tee -a "${LOG_FILE}"
+    echo "WARNING: Unintended host mounts detected:${UNINTENDED_MOUNTS}" | tee -a "${LOG_FILE}"
     ISOLATION_RESULTS["mountinfo_inspection"]="FAIL(UnintendedMountsFound)"
 fi
 
