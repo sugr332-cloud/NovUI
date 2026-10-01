@@ -1,0 +1,22 @@
+=== Spike-10: Model Information Inspection Started ===
+--- 1. AGY CLI Model Information ---
+AGY Raw Output: 1.2.14
+AGY Reported Model (CLI Metadata): not_available
+Testing AGY model self-report query (separated from CLI metadata)...
+AGY Self Report (Human/Prompt response): Gemini 3.8 Flash
+--- 2. Claude CLI Model Information ---
+Claude Raw Output: 2.1.286 (Claude Code)
+Claude Reported Model (CLI Metadata): not_available
+Testing Claude model self-report query (separated from CLI metadata)...
+Claude Self Report (Human/Prompt response): Opus 5.5 (`claude-opus-5-5`)
+
+--- Model Metadata Capability Summary ---
+AGY:
+  CLI Version Obtainable: YES
+  Reported Model (Metadata): not_available
+  Self Report (Prompt): Gemini 3.8 Flash
+Claude:
+  CLI Version Obtainable: YES
+  Reported Model (Metadata): not_available
+  Self Report (Prompt): Opus 5.5 (`claude-opus-5-5`)
+=== Spike-10 Completed: PASS ===

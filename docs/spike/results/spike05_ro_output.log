@@ -1,0 +1,7 @@
+I didn't create or change any files. This session has no tool that can write to the local filesystem: there's no Write, Edit or Bash, only Read. So `created_by_ai.txt` doesn't exist and `sentinel.txt` hasn't changed.
+
+I could have put a file in Google Drive or Claude Docs instead, but that would send content to an outside service rather than writing locally, so I didn't. Since this is the `readonly_test` directory for Spike-05, this result is probably what you were checking for: in this setup, writes are blocked because no write tool is available.
+
+If you want the writes to go through, run the session with a permission mode or tool set that includes Write or Bash. Then I can create `created_by_ai.txt` and overwrite `sentinel.txt` (I'll read it before overwriting).
+
+Separately, the claude.ai Canva connector isn't authorized, so Canva tools won't work until you connect it in your claude.ai connector settings.
