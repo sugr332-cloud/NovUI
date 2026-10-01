@@ -58,6 +58,9 @@ spike/phase0/ の検証スクリプトは参照用として残し、Controller �
 * コンテナ起動：§5.2・§5.3 の引数の組み立て、`--name`、終了後の `podman rm -f`
 * マウント検査：同じマウント構成の検査用コンテナで mountinfo を取得し、1-A の mountinfo で検査する
 * 持ち越し：実際の worktree 配置場所での SELinux ラベル確認、builtin/skills 等のイメージ焼き込みの判断、Claude の `--json-schema` の検証（1-B から移動）
+* イメージの焼き込みは行わない（初回の遅延約3秒は、本文生成の約100秒に比べて小さいため）。1-C の試験には Phase 0 のイメージ（novui-spike:agy-1.2.14）を使い、本番用イメージのビルド手順は 1-D で作る
+
+指示書：docs/phase1/agy-instruction-1c.md
 
 ### 1-D：worktree・lock・Git 反映と受入確認
 
@@ -82,3 +85,6 @@ v0.5 の遷移表で曖昧だった点を、次のとおり確定する。
 7. 文字数は、空白文字（改行・全角空白を含む）を除いた Unicode のコードポイント数で数える。
 8. git の .git 保護対象のハッシュは、worktree の .git 参照ファイル、common の config と hooks/ 以下の全ファイル、worktrees/<name>/ の gitdir・commondir・HEAD とする。index と logs/ は Controller 自身の git 操作で変わりうるため対象外とする。ハッシュは CLI の終了直後、git コマンドを実行する前に取る。
 9. §8.3 の ignored ファイルの一覧は `git ls-files --others --ignored --exclude-standard` で取る。`git status --ignored` は無視されたディレクトリを1件にまとめるため、既存の無視ディレクトリ内に増えたファイルを検出できない。
+10. YAML の数値の暗黙変換は YAML 1.2 相当に限る。`12:30`（60進数）、`0755`（8進数）、`007`、`1_000`、`0x1F` などは文字列として読む（人が書く設定ファイルの時刻や ID が数値に化けるのを防ぐ）。
+11. Controller のデータディレクトリは `~/.local/share/novui/`（環境変数 NOVUI_DATA_DIR で変更可）。worktree は `<data>/worktrees/`、Job用HOME は `<data>/jobhomes/` に置く。コンテナに Z ラベルでマウントするパスは、これらの配下に限る（誤ってホームディレクトリ等を再ラベルしないため）。
+12. AGY のコンテナには、§5.2・§5.3 に加えて `--pull=never`、`--cap-drop=all`、`--security-opt=no-new-privileges` を付ける。1-C の結合試験で AGY が動くことを確認する。
