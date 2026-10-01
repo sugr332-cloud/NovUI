@@ -1,6 +1,6 @@
 # Phase 1 実装計画：Controller 基盤
 
-**作成：2026-10-01 / 基準：docs/novel-system-spec-v0.5.md §24 Phase 1**
+**作成：2026-10-01 / 基準：docs/novel-system-spec-v0.5.1.md §24 Phase 1（1-C の途中まで v0.5）**
 **branch：phase1/controller（spike/phase0 から分岐）**
 
 ## 1. 目的
@@ -62,6 +62,10 @@ spike/phase0/ の検証スクリプトは参照用として残し、Controller �
 
 指示書：docs/phase1/agy-instruction-1c.md
 
+1-C の確認（docs/phase1/results/1c-*.yaml）により、AGY と Claude の入出力の方式を改めた（仕様 v0.5.1）。AGY はファイルを読まず書かず、本文をテキストで返し、Controller が書き込む。AGY のコンテナは Job用HOME だけをマウントする。この方式への移行と結合試験を「1-C 仕上げ」で行う。
+
+指示書：docs/phase1/agy-instruction-1c2.md
+
 ### 1-D：worktree・lock・Git 反映と受入確認
 
 * 作業ブランチと worktree の作成・削除（ai/<chapter-id>/<job-id>）
@@ -97,3 +101,4 @@ v0.5 の遷移表で曖昧だった点を、次のとおり確定する。
     * 選んだモデルが一覧から消えた場合、その用途の Job は開始せず WAITING_HUMAN とし、Human に選び直しを求める。別のモデルへ黙って切り替えない。
     * Claude の CLI にはモデル一覧の取得手段がない。`opus`・`sonnet` などの別名で指定し（別名は CLI 側で最新のモデルに対応する）、実際に使われたモデルを出力から取得できるかは 1-C の `--json-schema` 確認の結果（出力形式 json）で判断する。
     * Job 記録には、指定したモデル ID と、取得できた場合は実際のモデル名を残す（§5.7）。
+14. 仕様 v0.5.1 により、§4 の 11 の「worktree を Z ラベルでマウントする」は不要になった（AGY のコンテナは Job用HOME だけをマウントする）。Z ラベルでマウントするのは jobhome_root 配下に限る。
