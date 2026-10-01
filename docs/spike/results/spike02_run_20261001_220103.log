@@ -1,0 +1,51 @@
+=== Spike-02: Podman Isolation Verification Started ===
+--- 1. SELinux Label Option Test (none vs :z vs :Z) ---
+Testing SELinux label mode: none
+SELinux label [none] output: SUCCESS
+Testing SELinux label mode: z
+SELinux label [z] output: SUCCESS
+Testing SELinux label mode: Z
+SELinux label [Z] output: SUCCESS
+--- 2. Recording and Inspecting /proc/self/mountinfo ---
+mountinfo recorded to: /home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.logs/spike02_run_20261001_220103_mountinfo.log
+WARNING: Unintended host mounts detected:  2101 2051 0:144 / / rw,relatime - overlay overlay rw,context="system_u:object_r:container_file_t:s0:c65,c425",lowerdir=/var/home/hankyuu1/.local/share/containers/storage/overlay/l/K2DHNWMQEITUDSFRL33IRXAEK4:/var/home/hankyuu1/.local/share/containers/storage/overlay/l/K2DHNWMQEITUDSFRL33IRXAEK4/../diff1:/var/home/hankyuu1/.local/share/containers/storage/overlay/l/NWJ4BMVF5QS55DIRDBI6VCXH5O:/var/home/hankyuu1/.local/share/containers/storage/overlay/l/ZFW63KHBMFR2AJZ7KXQDBIINZZ:/var/home/hankyuu1/.local/share/containers/storage/overlay/l/V4BK7BMNQVRKEOTUT2M2GH3YAV:/var/home/hankyuu1/.local/share/containers/storage/overlay/l/36L6AKDYWKFABX2OGP5LXJPTBC:/var/home/hankyuu1/.local/share/containers/storage/overlay/l/PTV4SB3OFBLI45OW3FH7HPCZ3D,upperdir=/var/home/hankyuu1/.local/share/containers/storage/overlay/e517b6f6e9fab557223e79b0ae759e31f8daa069065841f8c9a7b455b80e713c/diff,workdir=/var/home/hankyuu1/.local/share/containers/storage/overlay/e517b6f6e9fab557223e79b0ae759e31f8daa069065841f8c9a7b455b80e713c/work,redirect_dir=nofollow,uuid=on,fsync=volatile,userxattr
+--- 3. Write Isolation Tests ---
+[Worktree Internal (Allowed)] Output: SUCCESS
+[Worktree Parent (Blocked)] Output: sh: line 1: /workspace/../parent_leak.txt: Permission denied
+BLOCKED
+[Home Directory (Blocked)] Output: sh: line 1: /home/hankyuu1/.novui_spike02_sentinel_118843: No such file or directory
+BLOCKED
+[Host /tmp (Isolated)] Output: DONE
+[Git Common Dir (Unmounted)] Output: sh: line 1: /home/hankyuu1/デスクトップ/claude-controller-ui/NovUI/spike/phase0/.work/spike02/mock_git_common/config: No such file or directory
+BLOCKED
+--- Testing Settings Protection (§43 RO overlay on worktree) ---
+[Settings Overlay Test] Output: sh: line 2: /workspace/world/world.md: Read-only file system
+sh: line 3: /workspace/characters/chara.md: Read-only file system
+WORLD_RO_BLOCKED
+CHARA_RO_BLOCKED
+PLOT_RO_BLOCKED
+FS_RO_BLOCKED
+RULES_RO_BLOCKED
+PROJECT_RO_BLOCKED
+ORDER_RO_BLOCKED
+DRAFT_WRITE_OK
+sh: line 4: /workspace/plot/plot.md: Read-only file system
+sh: line 5: /workspace/foreshadowing/fs.md: Read-only file system
+sh: line 6: /workspace/rules/rules.md: Read-only file system
+sh: line 7: /workspace/project.md: Read-only file system
+sh: line 8: /workspace/chapters-order.md: Read-only file system
+--- 4. UID Mapping Test (keep-id vs no keep-id) ---
+File owner with keep-id: 1000:1000 (host user: 1000:1000)
+File owner without keep-id: 1000:1000 (host user: 1000:1000)
+--- 5. Observing AGY/Git behavior when Git common dir is NOT mounted ---
+Checking git status behavior directly inside container...
+[Direct Git Status Output]: fatal: not a git repository: (null)
+GIT_COMMAND_FAILED_EXPECTED
+Testing AGY CLI with safe prompt in unmounted common dir...
+AGY Observation Completed: Exit code 0, Duration: 15s
+File list diff before/after AGY observe:
+none
+PASS: .git reference pointer was not altered or deleted by git/AGY commands.
+--- Checking Residual Containers (name prefix: spike02_run_20261001_220103) ---
+PASS: No residual containers found.
+=== Spike-02 Completed: FAIL ===
