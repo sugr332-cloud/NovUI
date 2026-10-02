@@ -68,6 +68,13 @@ spike/phase0/ の検証スクリプトは参照用として残し、Controller �
 
 ### 1-D：worktree・lock・Git 反映と受入確認
 
+1-D は2つに分ける。
+
+* 1-D1（指示書：docs/phase1/agy-instruction-1d1.md）：作業ブランチと worktree、commit と trailer、保護対象の commit の検査、merge の条件、実行 lock・章 lock、schema の v0.5.2 対応。podman・AI CLI を使わない。
+* 1-D2：Job の一連の実行（Context の組み立て、AGY の実行、出力の書込み、変更検査、Job 状態の遷移、commit）、違反を起こした場合に FAILED になることの確認、モデル一覧の取得、本番用イメージのビルド手順、キュー。
+
+以下は 1-D 全体の対象。
+
 * 作業ブランチと worktree の作成・削除（ai/<chapter-id>/<job-id>）
 * 実行 lock・章 lock・キュー（§18）
 * 変更検査（§8.3）の一連の実行と、Job 状態の遷移
