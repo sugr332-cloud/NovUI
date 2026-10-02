@@ -1073,3 +1073,407 @@ NovUI本体の開発フェーズ（§38 Phase 0〜5）とは別物である。
 - テンプレートの配置場所と版管理の方法
 - format_versionが異なる作品を開いたときの扱い（移行、読み取り専用など）
 - 作品の保管終了（アーカイブ）時の扱い
+
+
+## 45. 追補：プロジェクト全体の伏線管理
+
+**ステータス：v0.4追補（2026-10-02）。v0.5で正式化する。**
+
+### 45.1 目的
+
+§8.2の伏線管理を章単位だけでなく、作品全体を横断して追跡できるものとする。
+
+伏線は章内のメモではなく、作品全体で一意なIDを持つCanonicalデータとして管理する。
+
+### 45.2 伏線ID
+
+伏線には必ず一意なIDを付ける。
+
+例：
+
+    F001
+    F002
+    F003
+
+同一伏線を複数章・複数Sceneで扱う場合も同一IDを使用する。
+
+### 45.3 registry
+
+`foreshadowing/registry.md`を作品全体の伏線レジストリとする。
+
+最低限、以下を管理する。
+
+    id: F001
+    name: 王家の紋章
+    status: active
+    importance: major
+    introduced:
+      - chapter: ch-001
+        scene: S003
+    hints:
+      - chapter: ch-004
+        scene: S002
+      - chapter: ch-008
+        scene: S001
+    developments:
+      - chapter: ch-010
+        scene: S004
+    planned_resolution:
+      chapter: ch-015
+      scene: S003
+    resolved:
+      chapter: null
+      scene: null
+
+status：
+
+    planned
+    active
+    resolved
+    cancelled
+
+importance：
+
+    minor
+    normal
+    major
+
+### 45.4 章・Sceneからの参照
+
+`outline.md`、`plan.md`、`draft.md`、`summary.md`では、該当する伏線IDを明示的に参照できる。
+
+例：
+
+    foreshadowing: [F001, F007]
+
+これにより、本文上の表現だけに依存せず、同一伏線の全章における登場履歴を追跡できる。
+
+### 45.5 Context Engine
+
+執筆・検証時の伏線Contextは、最低限次の順で構成する。
+
+1. 現在Sceneで参照される伏線
+2. 現在Chapterでactiveな伏線
+3. 過去Chapterから継続しているactiveな伏線
+4. 作品全体の未回収major伏線
+5. 今後の回収予定
+6. 直近の伏線状態変更
+
+全作品本文を毎回AIへ投入する方式にはしない。
+
+### 45.6 Validator
+
+Validatorは、少なくとも以下を検査する。
+
+- 未回収伏線の状態
+- 伏線IDの存在
+- 存在しない伏線IDの参照
+- introducedより前のhintになっていないか
+- resolved後に未説明のhintが追加されていないか
+- planned_resolutionを過ぎても未回収の場合のWARNING
+- 重要伏線が章構成から消失していないか
+- 伏線の状態変更とsummaryの整合性
+- 伏線の回収内容が設定・plotと矛盾していないか
+
+Validatorは「回収すべき」と独断で確定してはならない。予定変更や意図的な未回収はHumanが判断する。
+
+### 45.7 伏線の状態変更
+
+章完了後の状態更新（§15）で、伏線の
+
+- introduced
+- hints
+- developments
+- planned_resolution
+- resolved
+- cancelled
+
+への変更を提案できる。
+
+Canonicalへの反映は§43の承認経路に従う。
+
+### 45.8 UI
+
+UIでは、現在章だけでなく作品全体の伏線状態を確認できる。
+
+最低限：
+
+- active伏線一覧
+- major伏線一覧
+- 未回収伏線
+- 回収予定章
+- 回収済み伏線
+- 現在Sceneとの関連
+- WARNING対象
+
+を表示できる。
+
+### 45.9 受入条件
+
+- 1つの伏線を複数章から同一IDで参照できる
+- 未回収伏線を章をまたいで検索できる
+- 回収予定と実際の回収を区別できる
+- 伏線の状態変更をHuman承認付きでCanonicalへ反映できる
+- Validatorが伏線ID、時系列、未回収、回収状態を検査できる
+
+
+## 46. 追補：キャラクター一貫性監視
+
+**ステータス：v0.4追補（2026-10-02）。v0.5で正式化する。**
+
+### 46.1 目的
+
+characters/ の設定を単にAIへContextとして渡すだけではなく、執筆された本文がキャラクター設定と一致しているかをValidatorが監視する。
+
+対象は、性格だけではなく、話し方、一人称、二人称、人物ごとの呼称、人間関係、知識、行動傾向を含む。
+
+### 46.2 キャラクター設定
+
+characters/<character-id>.mdには、可能な限り機械的に検証可能な形式で以下を定義する。
+
+    id: C001
+    name: 山田太郎
+
+    personality:
+      - 冷静
+      - 弱みを見せない
+
+    speech:
+      first_person: 俺
+      sentence_style:
+        - 短い
+        - 断定的
+      forbidden:
+        - 僕
+        - 基本的な敬語
+
+    address:
+      C002: 美咲
+      C003: 先生
+      default: お前
+
+    behavior:
+      - 危険時に仲間を優先する
+
+    knowledge:
+      - K001
+      - K004
+
+自由記述の設定を禁止するものではないが、監視対象にしたい項目は構造化する。
+
+### 46.3 監視対象
+
+Validatorは最低限、以下を検査する。
+
+#### A. 一人称
+
+設定：
+
+    first_person: 俺
+
+本文：
+
+    「僕はそう思わない。」
+
+この場合WARNINGを生成する。
+
+#### B. 二人称
+
+相手ごとの二人称設定と一致しているかを確認する。
+
+#### C. 呼称
+
+人物間の呼び方を監視する。
+
+例：
+
+    C001 → C002 = 「美咲」
+
+本文：
+
+    「美咲ちゃん、待ってくれ。」
+
+設定上の変更が存在しなければWARNINGとする。
+
+#### D. 口調
+
+- 敬語／タメ口
+- 語尾
+- 文の長さ
+- 断定／婉曲
+- 特徴的な口癖
+- 禁止語
+
+などを検査対象とする。
+
+#### E. 性格
+
+性格設定と本文中の行動・発言に明確な不整合がないかを検査する。
+
+性格判定は完全な機械判定を前提とせず、Claude ValidatorによるWARNING/STOP判定を基本とする。
+
+#### F. 行動傾向
+
+設定された価値観・行動原則と矛盾する行動を検出する。
+
+#### G. 知識
+
+キャラクターがまだ知らない情報を発言・認識していないかを検査する。
+
+これは§15のsummaryに保存された「各人物の知識」と連携する。
+
+#### H. 人間関係
+
+relationshipの状態と、本文中の呼称・態度・行動が矛盾していないかを検査する。
+
+### 46.4 時系列によるルール変更
+
+キャラクター設定は物語途中で変化することがある。
+
+そのため、ルール変更には適用開始地点を指定できる。
+
+例：
+
+    address:
+      C002:
+        default: お前
+        changes:
+          - value: 君
+            from:
+              chapter: ch-018
+              scene: S004
+            reason: 関係性の変化
+
+この場合、ch-018/S004以前は「お前」、それ以降は「君」を標準とする。
+
+一時的な例外も指定できる。
+
+    exceptions:
+      - rule: speech.formality
+        from:
+          chapter: ch-010
+          scene: S002
+        to:
+          chapter: ch-010
+          scene: S003
+        reason: 公的な場面
+
+### 46.5 設定変更との連携
+
+キャラクターの性格、口調、呼称、人間関係等を変更する場合は§43の設定保護を適用する。
+
+AIが本文中の変化だけを見てCanonical設定を自動変更してはならない。
+
+物語上の変化が発生した場合：
+
+    本文
+    ↓
+    Claudeによる状態変化提案
+    ↓
+    Human承認
+    ↓
+    Character設定Patch
+    ↓
+    Validator
+    ↓
+    Git反映
+
+とする。
+
+### 46.6 Validator出力
+
+キャラクター監視結果は既存のreview.mdへ保存する。
+
+例：
+
+    status: WARNING
+    checks:
+      character: WARNING
+    character_issues:
+      - character_id: C001
+        rule: speech.first_person
+        expected: 俺
+        actual: 僕
+        chapter: ch-012
+        scene: S003
+        severity: warning
+
+別の例：
+
+    - character_id: C001
+      rule: address.C002
+      expected: 美咲
+      actual: 美咲ちゃん
+      chapter: ch-012
+      scene: S004
+      severity: warning
+
+### 46.7 自動修正の扱い
+
+Validatorは原則として問題を検出するだけとする。
+
+- 明確な表記違反：HumanがREQUEST_FIXを選択した場合、range_editとして修正可能
+- 性格・人間関係・知識の矛盾：自動修正しない
+- 設定変更を伴う場合：setting_changeへ振り分ける
+- 意図的な例外：Humanが承認してルール変更または例外を登録する
+
+AIが「設定に合わせるため」に物語上の意味を勝手に変更してはならない。
+
+### 46.8 Context Engineとの連携
+
+現在Sceneの登場人物については、Context Engineが優先的に以下を渡す。
+
+1. キャラクター基本設定
+2. 現在の性格・状態
+3. 一人称・二人称
+4. 登場人物ごとの呼称
+5. 現在の人間関係
+6. 現在の知識
+7. 適用中の例外
+8. 直近の設定変更
+
+全キャラクターの全文を毎回投入するのではなく、現在Sceneに必要な人物を優先する。
+
+### 46.9 受入条件
+
+- キャラクターごとに一人称を検査できる
+- 相手ごとの呼称を検査できる
+- 口調ルールを検査できる
+- 性格・行動傾向をValidatorで検査できる
+- 知識状態をsummaryと照合できる
+- 物語途中の設定変更を適用開始Scene付きで管理できる
+- 意図的な例外を登録できる
+- 設定変更なしにAIがCanonicalキャラクター設定を書き換えられない
+- 検出結果をreview.mdへ機械可読形式で保存できる
+
+### 46.10 全体監査への追加
+
+§34のCharacters監査を以下まで拡張する。
+
+Characters：
+
+- 性格
+- 口調
+- 一人称
+- 二人称
+- 人物ごとの呼称
+- 語彙・口癖
+- 行動傾向
+- 能力
+- 知識
+- 人間関係
+- 時系列による設定変更
+- 例外ルール
+
+Foreshadowing：
+
+- 作品全体の伏線ID
+- 初出
+- ヒント
+- 発展
+- 回収予定
+- 実際の回収
+- 未回収
+- cancelled
+- 時系列
+- 他設定との整合性
