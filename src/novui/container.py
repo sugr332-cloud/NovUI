@@ -1,6 +1,7 @@
 """Podman container management and execution for isolated CLI runs."""
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -172,3 +173,23 @@ def run_container(
 
     remove_container(name)
     return res
+
+
+def image_label(image: str, key: str) -> str | None:
+    """Inspect and return the value of a specific label on an image.
+
+    Returns None if inspect fails, Labels is null/empty, or key is not found.
+    """
+    cmd = ["podman", "image", "inspect", "--format", "{{json .Labels}}", image]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    try:
+        labels = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(labels, dict):
+        return None
+    val = labels.get(key)
+    return str(val) if val is not None else None
+

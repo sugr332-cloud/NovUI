@@ -1,0 +1,7 @@
+models:
+  draft: "gemini-3.8-flash-high"
+  range_edit: "gemini-2.5-pro"
+works:
+  my-work-1:
+    models:
+      draft: "gemini-3.8-flash-high"

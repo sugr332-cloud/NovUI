@@ -229,6 +229,24 @@ def check_registry(doc: Any) -> list[str]:
     return errors
 
 
+def check_model_catalog(doc: Any) -> list[str]:
+    """Validate model catalog semantics."""
+    errors: list[str] = []
+    if not isinstance(doc, dict):
+        return errors
+    models = doc.get("models", [])
+    if isinstance(models, list):
+        seen_ids: set[str] = set()
+        for m in models:
+            if isinstance(m, dict):
+                mid = m.get("id")
+                if mid in seen_ids:
+                    errors.append(f"Duplicate model id: {mid!r}")
+                if mid is not None:
+                    seen_ids.add(mid)
+    return errors
+
+
 def _no_op_check(_doc: Any) -> list[str]:
     return []
 
@@ -265,4 +283,7 @@ SEMANTIC_CHECKS: dict[str, Callable[[Any], list[str]]] = _SemanticChecksDict({
     "registry": check_registry,
     "review": _no_op_check,
     "summary": _no_op_check,
+    "model_catalog": check_model_catalog,
+    "controller_settings": _no_op_check,
 })
+

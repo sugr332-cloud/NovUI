@@ -1,0 +1,9 @@
+fetched_at: "2026-10-02T12:00:00+09:00"
+agy_image: "localhost/novui-spike:agy-1.2.14"
+image_id: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+agy_version: "1.2.14"
+models:
+  - id: "gemini-3.8-flash-high"
+    label: "Gemini 3.8 Flash High"
+  - id: "gemini-2.5-pro"
+    label: "Gemini 2.5 Pro"

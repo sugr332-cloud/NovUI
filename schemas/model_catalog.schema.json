@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/model_catalog.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "fetched_at": { "$ref": "common.schema.json#/$defs/datetime" },
+    "agy_image": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "image_id": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "agy_version": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "label": { "type": "string" }
+        },
+        "required": ["id", "label"]
+      }
+    }
+  },
+  "required": [
+    "fetched_at",
+    "agy_image",
+    "image_id",
+    "agy_version",
+    "models"
+  ]
+}

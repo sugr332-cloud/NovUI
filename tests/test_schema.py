@@ -12,7 +12,7 @@ import json
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
 
-ALL_13_SCHEMAS = [
+ALL_15_SCHEMAS = [
     "chapter",
     "plan",
     "integrity_review",
@@ -26,6 +26,8 @@ ALL_13_SCHEMAS = [
     "job_record",
     "character",
     "registry",
+    "model_catalog",
+    "controller_settings",
 ]
 
 
@@ -35,7 +37,7 @@ def test_load_registry_all_schemas() -> None:
     assert registry is not None
 
 
-@pytest.mark.parametrize("schema_name", ALL_13_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
 def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     # 各正例フィクスチャが検証エラー0件、かつ semantics エラー0件
     path = FIXTURES_DIR / f"{schema_name}.yaml"
@@ -52,7 +54,7 @@ def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     validate_or_raise(doc, schema_name)
 
 
-@pytest.mark.parametrize("schema_name", ALL_13_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
 def test_missing_required_property_fails(schema_name: str) -> None:
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
@@ -85,7 +87,7 @@ def test_missing_required_property_fails(schema_name: str) -> None:
     assert len(errors) > 0, f"Expected validation error for missing property in {schema_name}"
 
 
-@pytest.mark.parametrize("schema_name", ALL_13_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
 def test_additional_property_rejected(schema_name: str) -> None:
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)

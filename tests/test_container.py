@@ -10,6 +10,7 @@ from novui.container import (
     agy_command,
     build_agy_mounts,
     build_run_args,
+    image_label,
     run_container,
 )
 
@@ -185,3 +186,60 @@ def test_run_container_cleanup_behavior(tmp_path: Path, monkeypatch: pytest.Monk
             timeout_seconds=5.0,
             log_dir=log_dir,
         )
+
+
+def test_image_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    # 1. 正常系：キーが存在する
+    def mock_inspect_ok(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout='{"novui.role": "agy", "version": "1.0"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", mock_inspect_ok)
+    assert image_label("novui-spike:test", "novui.role") == "agy"
+    assert image_label("novui-spike:test", "version") == "1.0"
+
+    # 2. 該当キーが存在しない
+    assert image_label("novui-spike:test", "nonexistent") is None
+
+    # 3. Labels が null
+    def mock_inspect_null(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="null",
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", mock_inspect_null)
+    assert image_label("novui-spike:test", "novui.role") is None
+
+    # 4. inspect が失敗 (returncode != 0)
+    def mock_inspect_fail(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=125,
+            stdout="",
+            stderr="Error: image not found",
+        )
+
+    monkeypatch.setattr("subprocess.run", mock_inspect_fail)
+    assert image_label("novui-spike:test", "novui.role") is None
+
+    # 5. stdout が壊れた JSON
+    def mock_inspect_bad_json(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout="not json",
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", mock_inspect_bad_json)
+    assert image_label("novui-spike:test", "novui.role") is None
+

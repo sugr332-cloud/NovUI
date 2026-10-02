@@ -1,0 +1,28 @@
+# ==============================================================================
+# NovUI Production AGY Containerfile
+# Base image fixed to Fedora 44
+# ==============================================================================
+
+FROM registry.fedoraproject.org/fedora:44
+
+# 1. 基本ツール・依存パッケージの導入
+RUN dnf install -y git procps-ng which findutils ca-certificates && dnf clean all
+
+# 2. AGY CLI の配置とバージョンラベル
+ARG AGY_VERSION="unknown"
+LABEL org.novui.role="agy"
+LABEL org.novui.agy.version="${AGY_VERSION}"
+
+COPY agy /usr/local/bin/agy
+RUN chmod 0755 /usr/local/bin/agy
+
+# 3. 作業用ディレクトリ
+WORKDIR /workspace
+
+# 4. 実行ユーザーと環境設定
+RUN mkdir -p /home/agy && chmod 0777 /home/agy
+ENV HOME=/home/agy
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+CMD ["/bin/sh"]
