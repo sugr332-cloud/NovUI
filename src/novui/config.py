@@ -41,7 +41,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         env = os.environ
 
     raw_data_dir = env.get("NOVUI_DATA_DIR", "~/.local/share/novui")
-    raw_agy_image = env.get("NOVUI_AGY_IMAGE", "localhost/novui-spike:agy-1.2.14")
+    raw_agy_image = env.get("NOVUI_AGY_IMAGE", "localhost/novui-agy:1.2.14")
     raw_token_path = env.get("NOVUI_AGY_TOKEN", "~/.gemini/antigravity-cli/antigravity-oauth-token")
     raw_git_name = env.get("NOVUI_GIT_NAME", "NovUI Controller")
     raw_git_email = env.get("NOVUI_GIT_EMAIL", "novui@localhost")

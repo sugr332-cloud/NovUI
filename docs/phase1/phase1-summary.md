@@ -43,7 +43,7 @@ Phase 1 の受入条件（§24）をすべて満たした。単体テスト 200�
 
 | 項目 | 時期 |
 |---|---|
-| 本番用イメージのビルド（container/build-agy-image.sh は作成済み、未実行）と NOVUI_AGY_IMAGE の切り替え | Phase 2 の開始前（Human が1回実行） |
+| 本番用イメージのビルド：完了（2026-10-03、localhost/novui-agy:1.2.14、image id ce3e93ec402f。結合試験8件 PASS）。既定のイメージを切り替え済み | 完了 |
 | Validator（Claude）の Job への組み込み、plan・validate・state_update・summary・instruction_routing の各 Job | Phase 2 |
 | range_edit・chapter_rewrite の Job（splice_range は実装済み） | Phase 2 |
 | キャラクター一貫性・伏線の検査、場面の区切りの機械検査（v0.5.2 §6.5.1、§11.7、§11.8） | Phase 2 |

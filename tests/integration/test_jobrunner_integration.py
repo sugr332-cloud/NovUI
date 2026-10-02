@@ -67,7 +67,7 @@ def itest_env() -> Iterator[tuple[Settings, Path, RunLock]]:
             "commit", "-m", "setup project files")
 
     token_path = Path.home() / ".gemini/antigravity-cli/antigravity-oauth-token"
-    agy_image = os.environ.get("NOVUI_AGY_IMAGE", "localhost/novui-spike:agy-1.2.14")
+    agy_image = os.environ.get("NOVUI_AGY_IMAGE", "localhost/novui-agy:1.2.14")
 
     settings = Settings(
         data_dir=data_dir,

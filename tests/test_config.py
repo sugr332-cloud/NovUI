@@ -11,7 +11,7 @@ def test_default_settings() -> None:
     assert settings.data_dir == Path.home() / ".local/share/novui"
     assert settings.worktree_root == settings.data_dir / "worktrees"
     assert settings.jobhome_root == settings.data_dir / "jobhomes"
-    assert settings.agy_image == "localhost/novui-spike:agy-1.2.14"
+    assert settings.agy_image == "localhost/novui-agy:1.2.14"
     assert settings.agy_token_path == Path.home() / ".gemini/antigravity-cli/antigravity-oauth-token"
     assert settings.timeouts == DEFAULT_TIMEOUTS
     assert settings.git_name == "NovUI Controller"
