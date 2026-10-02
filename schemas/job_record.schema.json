@@ -70,9 +70,12 @@
               "enum": ["agy", "claude"]
             },
             "version": { "$ref": "common.schema.json#/$defs/nonempty_string" },
-            "model": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+            "model": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+            "actual_model": {
+              "type": ["string", "null"]
+            }
           },
-          "required": ["name", "version", "model"]
+          "required": ["name", "version", "model", "actual_model"]
         }
       ]
     },

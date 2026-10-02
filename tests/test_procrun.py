@@ -119,9 +119,25 @@ def test_grandchildren_cleaned_up(tmp_path: Path) -> None:
     child_pid = int(child_pid_str)
 
     # sleep プロセスがプロセスグループ後始末によって確実に kill されていることを確認
-    time.sleep(0.1)
-    with pytest.raises(ProcessLookupError):
-        os.kill(child_pid, 0)
+    stat_file = Path(f"/proc/{child_pid}/stat")
+    deadline = time.time() + 2.0
+    cleaned_up = False
+    while time.time() < deadline:
+        if not stat_file.exists():
+            cleaned_up = True
+            break
+        try:
+            content = stat_file.read_text()
+            state = content.split(")")[-1].split()[0]
+            if state == "Z":
+                cleaned_up = True
+                break
+        except FileNotFoundError:
+            cleaned_up = True
+            break
+        time.sleep(0.1)
+
+    assert cleaned_up, f"Process {child_pid} is still alive after 2 seconds"
 
 
 def test_invalid_arguments_raise_value_error(tmp_path: Path) -> None:

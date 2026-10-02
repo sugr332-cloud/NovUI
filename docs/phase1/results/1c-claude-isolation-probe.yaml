@@ -1,0 +1,32 @@
+claude_version: 2.1.286 (Claude Code)
+runs:
+- run: 1
+  exit_code: 0
+  elapsed_seconds: 3.889
+  timed_out: false
+  stderr_head: ''
+  stdout_is_json: true
+  is_error: false
+  structured_output:
+    type: probe
+    answer: 日本の首都は東京です。
+  result_head: '{"type":"probe","answer":"日本の首都は東京です。"}'
+  mentions_connector: false
+  model_usage_keys:
+  - claude-opus-5-5
+  permission_denials: []
+- run: 2
+  exit_code: 0
+  elapsed_seconds: 4.182
+  timed_out: false
+  stderr_head: ''
+  stdout_is_json: true
+  is_error: false
+  structured_output:
+    type: probe
+    answer: 日本の首都は東京です。
+  result_head: '{"type":"probe","answer":"日本の首都は東京です。"}'
+  mentions_connector: false
+  model_usage_keys:
+  - claude-opus-5-5
+  permission_denials: []

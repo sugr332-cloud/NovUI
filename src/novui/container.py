@@ -9,22 +9,22 @@ from typing import Sequence
 from novui.paths import PathError, ensure_within
 from novui.procrun import ProcResult, run_process
 
-PROTECTED_PATHS: tuple[str, ...] = (
-    "project.yaml",
-    "chapters-order.yaml",
-    "world",
-    "characters",
-    "plot",
-    "foreshadowing/registry.yaml",
-    "rules",
-    ".novui",
-)
-
 _CONTAINER_NAME_RE = re.compile(r"^novui-[a-z0-9-]+$")
+
+MAX_PROMPT_BYTES: int = 120_000
 
 
 class ContainerError(Exception):
     """Raised when container configuration, execution, or removal fails."""
+
+
+class PromptTooLarge(ValueError):
+    """Raised when prompt UTF-8 byte size exceeds MAX_PROMPT_BYTES."""
+
+    def __init__(self, message: str, *, size: int, limit: int) -> None:
+        super().__init__(message)
+        self.size = size
+        self.limit = limit
 
 
 @dataclass(frozen=True)
@@ -34,28 +34,13 @@ class Mount:
     mode: str
 
 
-def build_mounts(
-    *,
-    worktree: Path,
-    job_home: Path,
-    worktree_root: Path,
-    jobhome_root: Path,
-) -> list[Mount]:
-    """Build the ordered list of volume mounts for the container.
+def build_agy_mounts(*, job_home: Path, jobhome_root: Path) -> list[Mount]:
+    """Build the volume mount for AGY container.
 
-    1. worktree -> /workspace (rw)
-    2. Existing protected paths in worktree -> /workspace/<path> (ro)
-    3. worktree/.git -> /workspace/.git (ro)
-    4. job_home -> /home/agy (rw)
+    Returns [Mount(source=job_home, target="/home/agy", mode="rw")].
+    Raises ContainerError if job_home is not within jobhome_root,
+    is jobhome_root itself, or contains comma or colon.
     """
-    try:
-        resolved_wt = ensure_within(worktree_root, worktree)
-    except (PathError, ValueError) as exc:
-        raise ContainerError(f"Invalid worktree path: {exc}") from exc
-
-    if resolved_wt == worktree_root.resolve(strict=False):
-        raise ContainerError("worktree cannot be the worktree_root itself")
-
     try:
         resolved_home = ensure_within(jobhome_root, job_home)
     except (PathError, ValueError) as exc:
@@ -64,30 +49,11 @@ def build_mounts(
     if resolved_home == jobhome_root.resolve(strict=False):
         raise ContainerError("job_home cannot be the jobhome_root itself")
 
-    dot_git = worktree / ".git"
-    if not dot_git.is_file():
-        raise ContainerError(f"worktree .git must be a file (linked worktree): {dot_git}")
+    p_str = str(job_home)
+    if "," in p_str or ":" in p_str:
+        raise ContainerError(f"job_home path contains invalid characters (comma or colon): {p_str}")
 
-    # Check for invalid characters in source paths
-    for p in (worktree, job_home, dot_git):
-        p_str = str(p)
-        if "," in p_str or ":" in p_str:
-            raise ContainerError(f"Source path contains invalid characters (comma or colon): {p_str}")
-
-    mounts: list[Mount] = [Mount(source=worktree, target="/workspace", mode="rw")]
-
-    for rel in PROTECTED_PATHS:
-        candidate = worktree / rel
-        if candidate.exists():
-            c_str = str(candidate)
-            if "," in c_str or ":" in c_str:
-                raise ContainerError(f"Source path contains invalid characters (comma or colon): {c_str}")
-            mounts.append(Mount(source=candidate, target=f"/workspace/{rel}", mode="ro"))
-
-    mounts.append(Mount(source=dot_git, target="/workspace/.git", mode="ro"))
-    mounts.append(Mount(source=job_home, target="/home/agy", mode="rw"))
-
-    return mounts
+    return [Mount(source=job_home, target="/home/agy", mode="rw")]
 
 
 def mount_arg(m: Mount) -> str:
@@ -136,6 +102,17 @@ def agy_command(*, model: str, prompt: str) -> list[str]:
         raise ValueError("model cannot be empty")
     if not prompt or not prompt.strip():
         raise ValueError("prompt cannot be empty")
+    if "\x00" in prompt:
+        raise ValueError("prompt cannot contain NUL bytes")
+
+    prompt_bytes = prompt.encode("utf-8")
+    size = len(prompt_bytes)
+    if size > MAX_PROMPT_BYTES:
+        raise PromptTooLarge(
+            f"Prompt size ({size} bytes) exceeds limit ({MAX_PROMPT_BYTES} bytes)",
+            size=size,
+            limit=MAX_PROMPT_BYTES,
+        )
 
     return ["agy", "--mode", "accept-edits", "--model", model, f"--print={prompt}"]
 
@@ -169,14 +146,16 @@ def run_container(
 ) -> ProcResult:
     """Run containerized command via procrun.run_process and ensure cleanup.
 
-    Always calls remove_container(name) upon completion or exception.
+    Calls remove_container(name) upon completion or exception.
+    If run_process returns normally and remove_container fails, raises ContainerError.
+    If run_process raises an exception, calls remove_container and re-raises the original exception.
     """
     args = build_run_args(name=name, image=image, mounts=mounts, command=command)
     stdout_path = log_dir / f"{name}.stdout.log"
     stderr_path = log_dir / f"{name}.stderr.log"
 
     try:
-        return run_process(
+        res = run_process(
             args,
             cwd=log_dir,
             timeout_seconds=timeout_seconds,
@@ -184,8 +163,12 @@ def run_container(
             stdout_path=stdout_path,
             stderr_path=stderr_path,
         )
-    finally:
+    except BaseException:
         try:
             remove_container(name)
         except Exception:
             pass
+        raise
+
+    remove_container(name)
+    return res

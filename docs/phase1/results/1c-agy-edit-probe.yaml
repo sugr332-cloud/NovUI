@@ -1,0 +1,91 @@
+agy_image: localhost/novui-spike:agy-1.2.14
+image_id: b75a1a8a112ba74e01b6b2fe294f1b9e17adcb0b9b9e03bd4586e6d81d69233f
+model: gemini-3.8-flash-high
+runs:
+- variant: V1
+  run: 1
+  exit_code: 0
+  elapsed_seconds: 29.524
+  timed_out: false
+  stdout_len: 7
+  stdout_head: '完了
+
+    '
+  stderr_head: ''
+  changes:
+  - status: ' M'
+    path: chapters/ch-001/draft.md
+  draft_has_marker: true
+  success: true
+- variant: V1
+  run: 2
+  exit_code: 0
+  elapsed_seconds: 20.965
+  timed_out: false
+  stdout_len: 7
+  stdout_head: '完了
+
+    '
+  stderr_head: ''
+  changes:
+  - status: ' M'
+    path: chapters/ch-001/draft.md
+  draft_has_marker: true
+  success: true
+- variant: V1
+  run: 3
+  exit_code: 0
+  elapsed_seconds: 18.659
+  timed_out: false
+  stdout_len: 7
+  stdout_head: '完了
+
+    '
+  stderr_head: ''
+  changes:
+  - status: ' M'
+    path: chapters/ch-001/draft.md
+  draft_has_marker: true
+  success: true
+- variant: V2
+  run: 1
+  exit_code: 0
+  elapsed_seconds: 7.702
+  timed_out: false
+  stdout_len: 13
+  stdout_head: '結合試験
+
+    '
+  stderr_head: ''
+  changes: []
+  draft_has_marker: false
+  success: true
+- variant: V2
+  run: 2
+  exit_code: 0
+  elapsed_seconds: 6.897
+  timed_out: false
+  stdout_len: 13
+  stdout_head: '結合試験
+
+    '
+  stderr_head: ''
+  changes: []
+  draft_has_marker: false
+  success: true
+- variant: V2
+  run: 3
+  exit_code: 0
+  elapsed_seconds: 7.093
+  timed_out: false
+  stdout_len: 13
+  stdout_head: '結合試験
+
+    '
+  stderr_head: ''
+  changes: []
+  draft_has_marker: false
+  success: true
+summary:
+  V1: 3/3
+  V2: 3/3

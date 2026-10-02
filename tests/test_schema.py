@@ -137,3 +137,35 @@ def test_unknown_schema_name_value_error() -> None:
     with pytest.raises(ValueError) as exc_info:
         validate({}, "non_existent_schema")
     assert "Unknown schema" in str(exc_info.value)
+
+
+def test_job_record_with_cli_info() -> None:
+    doc = load_yaml(FIXTURES_DIR / "job_record.yaml")
+
+    # Claude: actual_model が文字列
+    claude_doc = copy.deepcopy(doc)
+    claude_doc["cli"] = {
+        "name": "claude",
+        "version": "1.0.0",
+        "model": "claude-sonnet-4-6",
+        "actual_model": "claude-opus-5-5",
+    }
+    assert validate(claude_doc, "job_record") == []
+    assert SEMANTIC_CHECKS["job_record"](claude_doc) == []
+
+    # AGY: actual_model が null
+    agy_doc = copy.deepcopy(doc)
+    agy_doc["cli"] = {
+        "name": "agy",
+        "version": "1.2.14",
+        "model": "gemini-3.8-flash-high",
+        "actual_model": None,
+    }
+    assert validate(agy_doc, "job_record") == []
+    assert SEMANTIC_CHECKS["job_record"](agy_doc) == []
+
+    # actual_model 欠落でエラー
+    missing_actual = copy.deepcopy(agy_doc)
+    del missing_actual["cli"]["actual_model"]
+    assert len(validate(missing_actual, "job_record")) > 0
+

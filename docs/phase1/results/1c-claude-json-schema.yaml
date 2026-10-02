@@ -1,0 +1,68 @@
+claude_version: 2.1.286 (Claude Code)
+model: opus
+runs:
+  A:
+    exit_code: 0
+    elapsed_seconds: 5.288
+    timed_out: false
+    stdout_bytes: 275
+    stdout_head: "```json\n{\n  \"type\": \"probe\",\n  \"answer\": \"東京\"\n}\n```\n\
+      \n日本の首都は**東京**です。\n\n※ claude.ai の Canva コネクタは認証されていないため、現在は使えません。使う場合は、claude.ai\
+      \ のコネクタ設定で認証してください。\n"
+    stderr_head: ''
+    stdout_is_json: false
+    top_level_keys: null
+    schema_match_paths: []
+  B:
+    exit_code: 0
+    elapsed_seconds: 4.695
+    timed_out: false
+    stdout_bytes: 62
+    stdout_head: '{"type":"probe","answer":"日本の首都は東京です。"}
+
+      '
+    stderr_head: ''
+    stdout_is_json: true
+    top_level_keys:
+    - type
+    - answer
+    schema_match_paths:
+    - $
+  C:
+    exit_code: 0
+    elapsed_seconds: 4.18
+    timed_out: false
+    stdout_bytes: 1874
+    stdout_head: '{"duration_api_ms":2704,"stop_reason":"tool_use","session_id":"181ece89-4a0b-4872-8e42-307a1369e99f","total_cost_usd":0.031188,"usage":{"input_tokens":2,"cache_creation_input_tokens":3710,"cache_read_input_tokens":0,"output_tokens":75,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":3710,"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","iterations":[{"input_tokens":2,"output_tokens":75,"cache_read_input_tokens":0,"cache_creation_input_tokens":3710,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":3710},"type":"message"}],"speed":"standard","fallback_credit":null},"modelUsage":{"claude-opus-5-5":{"inputTokens":2,"outputTokens":75,"cacheReadInputTokens":0,"cacheCreationInputTokens":3710,"webSearchRequests":0,"costUSD":0.031188,"contextWindow":1000000,"maxOutputTokens":128000,"thinkingTokens":0,"canonicalModel":"cla'
+    stderr_head: ''
+    stdout_is_json: true
+    top_level_keys:
+    - duration_api_ms
+    - stop_reason
+    - session_id
+    - total_cost_usd
+    - usage
+    - modelUsage
+    - permission_denials
+    - terminal_reason
+    - fast_mode_state
+    - fast_mode_disabled_reason
+    - subagent_stats
+    - is_error
+    - num_turns
+    - subtype
+    - api_error_status
+    - result
+    - structured_output
+    - ttft_ms
+    - type
+    - duration_ms
+    - uuid
+    - ttft_stream_ms
+    - time_to_request_ms
+    - first_content_frame_ms
+    - queued_turn_count
+    - result_index
+    schema_match_paths:
+    - $.result(string)
+    - $.structured_output

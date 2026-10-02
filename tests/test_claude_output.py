@@ -2,12 +2,15 @@
 
 import json
 from pathlib import Path
+from typing import Any
 import pytest
 
 from novui.claude_output import (
     CLAUDE_OUTPUT_TYPES,
     ClaudeOutputError,
+    ClaudeRunMeta,
     OutputRetryExhausted,
+    parse_claude_meta,
     parse_claude_output,
     run_with_output_retry,
 )
@@ -16,58 +19,119 @@ from novui.yamlio import load_yaml
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
 
 
+def make_envelope(
+    structured_output: Any,
+    *,
+    is_error: bool = False,
+    model: str = "claude-opus-5-5",
+    cost: float = 0.01,
+    permission_denials: list[Any] | None = None,
+) -> bytes:
+    envelope = {
+        "type": "result",
+        "is_error": is_error,
+        "result": json.dumps(structured_output, ensure_ascii=False) if structured_output is not None else "",
+        "structured_output": structured_output,
+        "modelUsage": {model: {}},
+        "total_cost_usd": cost,
+        "permission_denials": permission_denials if permission_denials is not None else [],
+    }
+    return json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+
+
 @pytest.mark.parametrize("out_type", sorted(CLAUDE_OUTPUT_TYPES))
 def test_valid_json_parsed_for_all_types(out_type: str) -> None:
     doc = load_yaml(FIXTURES_DIR / f"{out_type}.yaml")
-    raw = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    raw = make_envelope(doc)
     parsed = parse_claude_output(raw, out_type)
     assert parsed == doc
 
 
 def test_kind_failures() -> None:
+    valid_plan = load_yaml(FIXTURES_DIR / "plan.yaml")
+
     # 1. 不正な UTF-8 バイト (decode)
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(b"\xff\xfe\x00\x00", "plan")
     assert exc_info.value.kind == "decode"
 
     # 2. ```json ... ``` で囲んだ JSON (json) - フェンスを除去せずエラーにする
-    valid_plan = load_yaml(FIXTURES_DIR / "plan.yaml")
-    json_str = json.dumps(valid_plan)
-    fenced = f"```json\n{json_str}\n```".encode("utf-8")
+    envelope_str = json.dumps({"is_error": False, "structured_output": valid_plan})
+    fenced = f"```json\n{envelope_str}\n```".encode("utf-8")
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(fenced, "plan")
     assert exc_info.value.kind == "json"
 
     # 3. 前置きの文章付き (json)
-    prefixed = f"Here is the plan:\n{json_str}".encode("utf-8")
+    prefixed = f"Here is the result:\n{envelope_str}".encode("utf-8")
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(prefixed, "plan")
     assert exc_info.value.kind == "json"
 
-    # 4. 配列 (type)
+    # 4. 封筒が配列 (envelope)
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(b"[]", "plan")
-    assert exc_info.value.kind == "type"
+    assert exc_info.value.kind == "envelope"
 
-    # 5. type 違い (type)
-    mismatched = json.dumps({"type": "summary"}).encode("utf-8")
+    # 5. is_error が true (envelope)
+    err_envelope = json.dumps({"is_error": True, "structured_output": valid_plan}).encode("utf-8")
+    with pytest.raises(ClaudeOutputError) as exc_info:
+        parse_claude_output(err_envelope, "plan")
+    assert exc_info.value.kind == "envelope"
+
+    # 6. structured_output がない (envelope)
+    missing_so = json.dumps({"type": "result", "is_error": False}).encode("utf-8")
+    with pytest.raises(ClaudeOutputError) as exc_info:
+        parse_claude_output(missing_so, "plan")
+    assert exc_info.value.kind == "envelope"
+
+    # 7. structured_output が文字列 (envelope)
+    str_so = json.dumps({"type": "result", "is_error": False, "structured_output": "hello"}).encode("utf-8")
+    with pytest.raises(ClaudeOutputError) as exc_info:
+        parse_claude_output(str_so, "plan")
+    assert exc_info.value.kind == "envelope"
+
+    # 8. type 違い (type)
+    mismatched = make_envelope({"type": "summary"})
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(mismatched, "plan")
     assert exc_info.value.kind == "type"
 
-    # 6. 必須欠落 (schema)
-    missing_fields = json.dumps({"type": "plan"}).encode("utf-8")
+    # 9. 必須欠落 (schema)
+    missing_fields = make_envelope({"type": "plan"})
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(missing_fields, "plan")
     assert exc_info.value.kind == "schema"
 
-    # 7. semantics 違反 (semantic)
+    # 10. semantics 違反 (semantic)
     invalid_sem_plan = dict(valid_plan)
     invalid_sem_plan["target_chars"] = {"min": 5000, "max": 3000}  # min > max
-    raw_sem = json.dumps(invalid_sem_plan).encode("utf-8")
+    raw_sem = make_envelope(invalid_sem_plan)
     with pytest.raises(ClaudeOutputError) as exc_info:
         parse_claude_output(raw_sem, "plan")
     assert exc_info.value.kind == "semantic"
+
+
+def test_parse_claude_meta() -> None:
+    # 正常な封筒
+    raw = make_envelope(
+        {"type": "plan"},
+        is_error=False,
+        model="claude-opus-5-5",
+        cost=0.015,
+        permission_denials=[{"tool": "Bash"}],
+    )
+    meta = parse_claude_meta(raw)
+    assert meta is not None
+    assert meta.is_error is False
+    assert meta.model_usage_keys == ("claude-opus-5-5",)
+    assert meta.total_cost_usd == 0.015
+    assert meta.permission_denials_count == 1
+
+    # 壊れた入力（JSON でない、dict でない等）で None
+    assert parse_claude_meta(b"not json") is None
+    assert parse_claude_meta(b"[]") is None
+    assert parse_claude_meta(b"\xff\xfe") is None
 
 
 def test_unknown_expected_type_raises_value_error() -> None:
@@ -77,7 +141,7 @@ def test_unknown_expected_type_raises_value_error() -> None:
 
 def test_run_with_output_retry_success_on_second_attempt() -> None:
     valid_plan = load_yaml(FIXTURES_DIR / "plan.yaml")
-    valid_bytes = json.dumps(valid_plan).encode("utf-8")
+    valid_bytes = make_envelope(valid_plan)
 
     responses = [
         b"not json",       # attempt 1: json error

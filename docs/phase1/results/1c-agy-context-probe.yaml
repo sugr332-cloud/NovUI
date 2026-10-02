@@ -1,0 +1,80 @@
+agy_image: localhost/novui-spike:agy-1.2.14
+image_id: b75a1a8a112ba74e01b6b2fe294f1b9e17adcb0b9b9e03bd4586e6d81d69233f
+model: gemini-3.8-flash-high
+p1:
+- run: 1
+  exit_code: 0
+  elapsed_seconds: 10.384
+  stdout: '「私の名前は【要確認：主人公の名前】です」と、静かに名乗った。
+
+    '
+  stderr_head: ''
+  has_marker: true
+  success: true
+- run: 2
+  exit_code: 0
+  elapsed_seconds: 11.087
+  stdout: '「私の名前は【要確認：主人公の名前】です」と名乗った。
+
+    '
+  stderr_head: ''
+  has_marker: true
+  success: true
+- run: 3
+  exit_code: 0
+  elapsed_seconds: 9.583
+  stdout: '「私の名前は【要確認：主人公の名前】です」と名乗った。
+
+    '
+  stderr_head: ''
+  has_marker: true
+  success: true
+p2:
+- target_bytes: 100000
+  actual_bytes: 99954
+  run: 1
+  exit_code: 0
+  elapsed_seconds: 12.093
+  stdout_head: '結合試験
+
+    '
+  stderr_head: ''
+  error: null
+  success: true
+- target_bytes: 100000
+  actual_bytes: 99954
+  run: 2
+  exit_code: 0
+  elapsed_seconds: 9.885
+  stdout_head: '結合試験
+
+    '
+  stderr_head: ''
+  error: null
+  success: true
+- target_bytes: 125000
+  actual_bytes: 124954
+  run: 1
+  exit_code: 0
+  elapsed_seconds: 8.183
+  stdout_head: '結合試験
+
+    '
+  stderr_head: ''
+  error: null
+  success: true
+- target_bytes: 140000
+  actual_bytes: 139954
+  run: 1
+  exit_code: -1
+  elapsed_seconds: 0.0
+  stdout_head: ''
+  stderr_head: ''
+  error: 'OSError: [Errno 7] Argument list too long: ''podman'''
+  success: false
+summary:
+  p1: 3/3
+  p2:
+    '100000': 2/2
+    '125000': 1/1
+    '140000': 0/1

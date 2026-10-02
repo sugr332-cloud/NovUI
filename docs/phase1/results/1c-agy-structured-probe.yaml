@@ -1,0 +1,204 @@
+agy_image: localhost/novui-spike:agy-1.2.14
+image_id: b75a1a8a112ba74e01b6b2fe294f1b9e17adcb0b9b9e03bd4586e6d81d69233f
+model: gemini-3.8-flash-high
+schema: '{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false}'
+runs:
+- variant: V3a
+  run: 1
+  exit_code: 0
+  elapsed_seconds: 81.919
+  timed_out: false
+  stdout_len: 1043
+  stdout_head: '{"conversation_id":"08842999-3fc0-4902-ad98-a6ad96a4cf50","status":"SUCCESS","response":"{\"requests\":[],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Finish task\",\"type\":\"finish\"}\n{\"requests\":[],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Finish task\",\"type\":\"draft_output\"}\n","duration_seconds":76.386128775,"num_turns":1,"structured_output":{"requests":[],"text":"結合試験","type":"draft_output"},"json_schema":{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false},"usage":{"input_tokens":73768,"output_tokens":12216,"thinking_tokens":11741,"cache_read_tokens":118187,"total_tokens":85984}}
+
+    '
+  stderr_head: ''
+  stdout_is_json: true
+  top_level_keys:
+  - conversation_id
+  - status
+  - response
+  - duration_seconds
+  - num_turns
+  - structured_output
+  - json_schema
+  - usage
+  schema_match_paths:
+  - $.structured_output
+  matched:
+    requests: []
+    text: 結合試験
+    type: draft_output
+  text_has_marker: true
+  requests_count: 0
+  changes: []
+  success: true
+- variant: V3a
+  run: 2
+  exit_code: 0
+  elapsed_seconds: 111.684
+  timed_out: false
+  stdout_len: 1052
+  stdout_head: '{"conversation_id":"a7fda4ec-4ce1-4119-974e-e4d6a102a6d1","status":"SUCCESS","response":"{\"requests\":[],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Task completion\",\"type\":\"finish\"}\n{\"requests\":[],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Task completion\",\"type\":\"draft_output\"}\n","duration_seconds":105.78348132,"num_turns":1,"structured_output":{"requests":[],"text":"結合試験","type":"draft_output"},"json_schema":{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false},"usage":{"input_tokens":149630,"output_tokens":19524,"thinking_tokens":19111,"cache_read_tokens":48970,"total_tokens":169154}}
+
+    '
+  stderr_head: ''
+  stdout_is_json: true
+  top_level_keys:
+  - conversation_id
+  - status
+  - response
+  - duration_seconds
+  - num_turns
+  - structured_output
+  - json_schema
+  - usage
+  schema_match_paths:
+  - $.structured_output
+  matched:
+    requests: []
+    text: 結合試験
+    type: draft_output
+  text_has_marker: true
+  requests_count: 0
+  changes: []
+  success: true
+- variant: V3a
+  run: 3
+  exit_code: 0
+  elapsed_seconds: 127.32
+  timed_out: false
+  stdout_len: 1045
+  stdout_head: '{"conversation_id":"cc387ed2-c92b-43bd-80c9-745242eef7e6","status":"SUCCESS","response":"{\"requests\":[],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Finish task\",\"type\":\"finish\"}\n{\"requests\":[],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Finish task\",\"type\":\"draft_output\"}\n","duration_seconds":121.332918155,"num_turns":1,"structured_output":{"requests":[],"text":"結合試験","type":"draft_output"},"json_schema":{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false},"usage":{"input_tokens":97525,"output_tokens":18518,"thinking_tokens":17888,"cache_read_tokens":252525,"total_tokens":116043}}
+
+    '
+  stderr_head: ''
+  stdout_is_json: true
+  top_level_keys:
+  - conversation_id
+  - status
+  - response
+  - duration_seconds
+  - num_turns
+  - structured_output
+  - json_schema
+  - usage
+  schema_match_paths:
+  - $.structured_output
+  matched:
+    requests: []
+    text: 結合試験
+    type: draft_output
+  text_has_marker: true
+  requests_count: 0
+  changes: []
+  success: true
+- variant: V3b
+  run: 1
+  exit_code: 0
+  elapsed_seconds: 73.462
+  timed_out: false
+  stdout_len: 1472
+  stdout_head: '{"conversation_id":"7e8ee868-240a-40b4-af0e-53b740856f1f","status":"SUCCESS","response":"{\"requests\":[{\"kind\":\"undefined_setting\",\"message\":\"world/w.md
+    に主人公の名前が書かれていません。\",\"target\":\"characters\"}],\"text\":\"結合試験\",\"toolAction\":\"Finishing
+    task\",\"toolSummary\":\"Finish task\",\"type\":\"finish\"}\n{\"requests\":[{\"kind\":\"undefined_setting\",\"message\":\"world/w.md
+    に主人公の名前が書かれていません。\",\"target\":\"characters\"}],\"text\":\"結合試験\",\"toolAction\":\"Completing
+    task with draft output\",\"toolSummary\":\"Draft output completion\",\"type\":\"draft_output\"}\n","duration_seconds":67.924689509,"num_turns":1,"structured_output":{"requests":[{"kind":"undefined_setting","message":"world/w.md
+    に主人公の名前が書かれていません。","target":"characters"}],"text":"結合試験","type":"draft_output"},"json_schema":{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false},"usage":{"input_tokens":93358,"output_tokens":10444,"thinking_tokens":9948,"cache_read_tokens":93516,"total_tokens":103802}}
+
+    '
+  stderr_head: ''
+  stdout_is_json: true
+  top_level_keys:
+  - conversation_id
+  - status
+  - response
+  - duration_seconds
+  - num_turns
+  - structured_output
+  - json_schema
+  - usage
+  schema_match_paths:
+  - $.structured_output
+  matched:
+    requests:
+    - kind: undefined_setting
+      message: world/w.md に主人公の名前が書かれていません。
+      target: characters
+    text: 結合試験
+    type: draft_output
+  text_has_marker: true
+  requests_count: 1
+  changes: []
+  success: true
+- variant: V3b
+  run: 2
+  exit_code: 0
+  elapsed_seconds: 58.496
+  timed_out: false
+  stdout_len: 761
+  stdout_head: '{"conversation_id":"4fdb10d2-60d8-4a0e-9857-052c42dbf1cd","status":"SUCCESS","response":"","duration_seconds":53.67095413,"num_turns":1,"json_schema":{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false},"usage":{"input_tokens":117238,"output_tokens":5440,"thinking_tokens":4927,"cache_read_tokens":64937,"total_tokens":122678},"denied_actions":[{"action":"read_file","display_name":"ViewFile"}]}
+
+    '
+  stderr_head: 'jetski: no output produced — a tool required the "read_file" permission
+    that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule
+    under permissions.allow in settings.json (e.g. read_file(<target>)). Alternatively,
+    re-run with --dangerously-skip-permissions to auto-approve all tools.
+
+    '
+  stdout_is_json: true
+  top_level_keys:
+  - conversation_id
+  - status
+  - response
+  - duration_seconds
+  - num_turns
+  - json_schema
+  - usage
+  - denied_actions
+  schema_match_paths: []
+  matched: null
+  text_has_marker: false
+  requests_count: 0
+  changes: []
+  success: false
+- variant: V3b
+  run: 3
+  exit_code: 0
+  elapsed_seconds: 80.033
+  timed_out: false
+  stdout_len: 762
+  stdout_head: '{"conversation_id":"4041a795-1d20-49ad-8310-0c303d2b5625","status":"SUCCESS","response":"","duration_seconds":74.155711974,"num_turns":1,"json_schema":{"type":"object","properties":{"type":{"const":"draft_output"},"text":{"type":"string"},"requests":{"type":"array","items":{"type":"object","properties":{"kind":{"enum":["undefined_setting","conflict","question"]},"target":{"type":["string","null"]},"message":{"type":"string"}},"required":["kind","target","message"],"additionalProperties":false}}},"required":["type","text","requests"],"additionalProperties":false},"usage":{"input_tokens":161470,"output_tokens":8160,"thinking_tokens":7236,"cache_read_tokens":93351,"total_tokens":169630},"denied_actions":[{"action":"read_file","display_name":"ViewFile"}]}
+
+    '
+  stderr_head: 'jetski: no output produced — a tool required the "read_file" permission
+    that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule
+    under permissions.allow in settings.json (e.g. read_file(<target>)). Alternatively,
+    re-run with --dangerously-skip-permissions to auto-approve all tools.
+
+    '
+  stdout_is_json: true
+  top_level_keys:
+  - conversation_id
+  - status
+  - response
+  - duration_seconds
+  - num_turns
+  - json_schema
+  - usage
+  - denied_actions
+  schema_match_paths: []
+  matched: null
+  text_has_marker: false
+  requests_count: 0
+  changes: []
+  success: false
+summary:
+  V3a: 3/3
+  V3b: 1/3
