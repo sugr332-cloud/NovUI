@@ -102,3 +102,4 @@ v0.5 の遷移表で曖昧だった点を、次のとおり確定する。
     * Claude の CLI にはモデル一覧の取得手段がない。`opus`・`sonnet` などの別名で指定し（別名は CLI 側で最新のモデルに対応する）、実際に使われたモデルを出力から取得できるかは 1-C の `--json-schema` 確認の結果（出力形式 json）で判断する。
     * Job 記録には、指定したモデル ID と、取得できた場合は実際のモデル名を残す（§5.7）。
 14. 仕様 v0.5.1 により、§4 の 11 の「worktree を Z ラベルでマウントする」は不要になった（AGY のコンテナは Job用HOME だけをマウントする）。Z ラベルでマウントするのは jobhome_root 配下に限る。
+15. 仕様 v0.5.2（v0.4 追補 §45・§46 の統合）に合わせ、1-D で schema を次のとおり改める：plan.yaml の scenes[].foreshadowing と summary.yaml の foreshadowing[].id を伏線 ID（`^F[0-9]{3,}$`）にする。characters/<ID>.yaml と foreshadowing/registry.yaml の schema を追加する（§6.4.1、§6.4.2）。キャラクター一貫性・伏線の検査そのものは Phase 2 で実装する。
