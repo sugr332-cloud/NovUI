@@ -132,7 +132,7 @@ def test_grandchildren_cleaned_up(tmp_path: Path) -> None:
             if state == "Z":
                 cleaned_up = True
                 break
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             cleaned_up = True
             break
         time.sleep(0.1)

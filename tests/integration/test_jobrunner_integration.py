@@ -11,8 +11,14 @@ import pytest
 
 from novui.config import Settings
 from novui.gitinspect import run_git
-from novui.jobrunner import DraftJobRequest, run_draft_job
+from novui.jobrunner import DraftJobRequest, jobs_dir, run_draft_job
 from novui.locks import RunLock
+from novui.models import (
+    fetch_agy_models,
+    resolve_model,
+    save_catalog,
+    select_model,
+)
 from novui.schema import validate_or_raise
 from novui.states import JobState
 from novui.workrepo import head_commit
@@ -47,14 +53,14 @@ def itest_env() -> Iterator[tuple[Settings, Path, RunLock]]:
     run_git(repo_dir, "-c", "user.name=NovUI Integration", "-c", "user.email=itest@novui.local",
             "commit", "--allow-empty", "-m", "init")
 
-    # Add setting and plan
+    # Add world/w.md and chapters/ch-001/draft.md (as required by instruction)
     (repo_dir / "world").mkdir()
-    setting_text = "location: 架空の港町\nclimate: 温暖で潮風が強い\n"
-    (repo_dir / "world" / "setting.yaml").write_text(setting_text, encoding="utf-8")
+    (repo_dir / "world" / "w.md").write_text("# World\n\n舞台は架空の港町。\n", encoding="utf-8")
+    (repo_dir / "world" / "setting.yaml").write_text("location: 架空の港町\nclimate: 温暖で潮風が強い\n", encoding="utf-8")
 
     (repo_dir / "chapters" / "ch-001").mkdir(parents=True)
-    plan_text = "title: 第1章 到着\ntarget_chars:\n  min: 200\n  max: 1000\n"
-    (repo_dir / "chapters" / "ch-001" / "plan.yaml").write_text(plan_text, encoding="utf-8")
+    (repo_dir / "chapters" / "ch-001" / "draft.md").write_text("# Chapter 1\n\nInitial draft text.\n", encoding="utf-8")
+    (repo_dir / "chapters" / "ch-001" / "plan.yaml").write_text("title: 第1章 到着\n", encoding="utf-8")
 
     run_git(repo_dir, "add", "-A")
     run_git(repo_dir, "-c", "user.name=NovUI Integration", "-c", "user.email=itest@novui.local",
@@ -94,15 +100,14 @@ def test_integration_j1_normal_draft(itest_env: tuple[Settings, Path, RunLock]) 
         chapter_id="ch-001",
         job_id=job_id,
         model=model,
-        context_paths=("world/setting.yaml", "chapters/ch-001/plan.yaml"),
-        instruction="主人公が港に着いて船を降りる短い場面（300字程度）を書いてください。",
-        target_chars=(100, 1000),
+        context_paths=("world/w.md", "chapters/ch-001/draft.md"),
+        instruction="これまでの本文の続きとして、「結合試験」という1行だけを書いてください。",
     )
 
     record = run_draft_job(settings, req, run_lock)
 
-    # 1. 状態の確認：COMPLETED または WAITING_HUMAN（markers が出た場合）
-    assert record["state"] in (JobState.COMPLETED.name, JobState.WAITING_HUMAN.name)
+    # 1. 状態の確認：COMPLETED
+    assert record["state"] == JobState.COMPLETED.name
 
     # 2. checks に FAIL がないこと
     assert not any(c["status"] == "FAIL" for c in record["checks"])
@@ -112,9 +117,9 @@ def test_integration_j1_normal_draft(itest_env: tuple[Settings, Path, RunLock]) 
     branch_commit = run_git(repo, "rev-parse", branch_ref).decode("utf-8").strip()
     assert branch_commit != main_before
 
-    # 4. draft.md に日本語本文が100文字以上書かれていること
+    # 4. 作業ブランチの draft.md に「結合試験」を含むこと
     draft_content = run_git(repo, "show", f"{branch_ref}:chapters/ch-001/draft.md").decode("utf-8")
-    assert len(draft_content.strip()) >= 100
+    assert "結合試験" in draft_content
 
     # 5. main の HEAD は進んでいないこと
     assert head_commit(repo, "main") == main_before
@@ -122,12 +127,63 @@ def test_integration_j1_normal_draft(itest_env: tuple[Settings, Path, RunLock]) 
     # 6. run_lock が解放されていること
     assert run_lock.holder(work_key) is None
 
+    # 7. Job用HOME（settings.jobhome_root の中）が空であること
+    if settings.jobhome_root.exists():
+        job_homes = [e for e in settings.jobhome_root.iterdir() if e.name.startswith("job-") or e.name.startswith("itest-")]
+        assert len(job_homes) == 0, f"Leftover job_home: {job_homes}"
 
-def test_integration_j2_undefined_settings(itest_env: tuple[Settings, Path, RunLock]) -> None:
+    # 8. podman ps -a --filter name=<コンテナ名> が空であること
+    container_name = f"novui-{work_key}-{job_id}"
+    proc = subprocess.run(
+        ["podman", "ps", "-a", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc.stdout.strip() == "", f"Container {container_name} is still present"
+
+    # 9. 実際のトークンの内容（bytes）が jobs_dir 配下の全ファイルと worktree 内の全ファイルに含まれないこと
+    token_bytes = settings.agy_token_path.read_bytes().strip()
+    assert len(token_bytes) > 0
+
+    jdir = jobs_dir(settings, work_key)
+    if jdir.exists():
+        for f in jdir.rglob("*"):
+            if f.is_file():
+                assert token_bytes not in f.read_bytes(), f"Token found in job file {f.name}"
+
+    wt_dir = settings.worktree_root / work_key
+    if wt_dir.exists():
+        for f in wt_dir.rglob("*"):
+            if f.is_file():
+                assert token_bytes not in f.read_bytes(), f"Token found in worktree file {f.name}"
+
+
+def test_integration_j2_model_catalog(itest_env: tuple[Settings, Path, RunLock]) -> None:
+    settings, repo, run_lock = itest_env
+
+    # 1. fetch_agy_models を実行
+    catalog = fetch_agy_models(settings)
+    model_ids = [m["id"] for m in catalog.get("models", [])]
+    print(f"\n[J2 MODELS] Total {len(model_ids)} models fetched: {model_ids}")
+
+    # 2. models の id に gemini-3.8-flash-high を含むこと
+    assert "gemini-3.8-flash-high" in model_ids, f"gemini-3.8-flash-high not in fetched models: {model_ids}"
+
+    # 3. save_catalog の後、select_model を行い、resolve_model が一致すること
+    saved_path = save_catalog(settings, catalog)
+    assert saved_path.is_file()
+
+    select_model(settings, "draft", "gemini-3.8-flash-high")
+    resolved = resolve_model(settings, "draft")
+    assert resolved == "gemini-3.8-flash-high"
+
+
+def test_integration_j3_undefined_settings(itest_env: tuple[Settings, Path, RunLock]) -> None:
     settings, repo, run_lock = itest_env
     model = os.environ.get("NOVUI_AGY_MODEL", "gemini-3.8-flash-high")
     work_key = f"itest-work-{secrets.token_hex(2)}"
-    job_id = "job-0002"
+    job_id = "job-0003"
 
     req = DraftJobRequest(
         work_key=work_key,
@@ -135,7 +191,7 @@ def test_integration_j2_undefined_settings(itest_env: tuple[Settings, Path, RunL
         chapter_id="ch-001",
         job_id=job_id,
         model=model,
-        context_paths=("world/setting.yaml",),
+        context_paths=("world/w.md",),
         instruction="主人公が名前を名乗る短い場面を書いてください。名前は設定に書かれていなければ絶対に推測せず【要確認：主人公の名前】としてください。",
     )
 
