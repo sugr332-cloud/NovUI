@@ -8,9 +8,11 @@ from novui.schema import SCHEMA_DIR, load_registry, validate, validate_or_raise
 from novui.semantics import SEMANTIC_CHECKS
 from novui.yamlio import load_yaml
 
+import json
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
 
-ALL_11_SCHEMAS = [
+ALL_13_SCHEMAS = [
     "chapter",
     "plan",
     "integrity_review",
@@ -22,6 +24,8 @@ ALL_11_SCHEMAS = [
     "instruction_routing",
     "approval",
     "job_record",
+    "character",
+    "registry",
 ]
 
 
@@ -31,7 +35,7 @@ def test_load_registry_all_schemas() -> None:
     assert registry is not None
 
 
-@pytest.mark.parametrize("schema_name", ALL_11_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_13_SCHEMAS)
 def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     # 各正例フィクスチャが検証エラー0件、かつ semantics エラー0件
     path = FIXTURES_DIR / f"{schema_name}.yaml"
@@ -48,26 +52,40 @@ def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     validate_or_raise(doc, schema_name)
 
 
-@pytest.mark.parametrize("schema_name", ALL_11_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_13_SCHEMAS)
 def test_missing_required_property_fails(schema_name: str) -> None:
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
     corrupted = copy.deepcopy(doc)
 
+    schema_file = SCHEMA_DIR / f"{schema_name}.schema.json"
+    schema_data = json.loads(schema_file.read_text(encoding="utf-8"))
+
     if isinstance(corrupted, dict):
-        # 必須プロパティを1つ削除
-        first_key = next(iter(corrupted.keys()))
-        del corrupted[first_key]
+        required_keys = schema_data.get("required", [])
+        assert required_keys, f"Schema {schema_name} has no top-level required keys"
+        target_key = required_keys[0]
+        del corrupted[target_key]
     elif isinstance(corrupted, list) and corrupted:
-        # requests のようにトップレベルが配列の場合は先頭要素の必須プロパティを削除
-        first_key = next(iter(corrupted[0].keys()))
-        del corrupted[0][first_key]
+        items_schema = schema_data.get("items", {})
+        required_keys = items_schema.get("required")
+        if not required_keys and "oneOf" in items_schema:
+            for branch in items_schema["oneOf"]:
+                branch_type = branch.get("properties", {}).get("type", {}).get("const")
+                if corrupted[0].get("type") == branch_type:
+                    required_keys = branch.get("required")
+                    break
+            if not required_keys:
+                required_keys = items_schema["oneOf"][0].get("required", [])
+        assert required_keys, f"Array schema {schema_name} items has no required keys"
+        target_key = required_keys[0]
+        del corrupted[0][target_key]
 
     errors = validate(corrupted, schema_name)
     assert len(errors) > 0, f"Expected validation error for missing property in {schema_name}"
 
 
-@pytest.mark.parametrize("schema_name", ALL_11_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_13_SCHEMAS)
 def test_additional_property_rejected(schema_name: str) -> None:
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
@@ -131,6 +149,29 @@ def test_specific_negative_cases() -> None:
         # checks is missing
     }
     assert len(validate(bad_rev, "review")) > 0
+
+    # 8. plan: scenes[].foreshadowing に '王家の紋章'（F001形式でない）
+    plan_doc = load_yaml(FIXTURES_DIR / "plan.yaml")
+    bad_plan = copy.deepcopy(plan_doc)
+    bad_plan["scenes"][0]["foreshadowing"] = ["王家の紋章"]
+    assert len(validate(bad_plan, "plan")) > 0
+
+    # 9. character: address に 'X001' キー（C001形式でない）
+    char_doc = load_yaml(FIXTURES_DIR / "character.yaml")
+    bad_char_address = copy.deepcopy(char_doc)
+    bad_char_address["address"]["X001"] = "先生"
+    assert len(validate(bad_char_address, "character")) > 0
+
+    # 10. character: speech.formality に 'rude'（casual, polite, mixed 以外）
+    bad_char_formality = copy.deepcopy(char_doc)
+    bad_char_formality["speech"]["formality"] = "rude"
+    assert len(validate(bad_char_formality, "character")) > 0
+
+    # 11. registry: status 'done'（planned, active, resolved, cancelled 以外）
+    reg_doc = load_yaml(FIXTURES_DIR / "registry.yaml")
+    bad_reg_status = copy.deepcopy(reg_doc)
+    bad_reg_status[0]["status"] = "done"
+    assert len(validate(bad_reg_status, "registry")) > 0
 
 
 def test_unknown_schema_name_value_error() -> None:

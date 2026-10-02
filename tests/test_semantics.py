@@ -5,10 +5,12 @@ from pathlib import Path
 from novui.semantics import (
     check_approval,
     check_chapter,
+    check_character,
     check_instruction_routing,
     check_integrity_review,
     check_job_record,
     check_plan,
+    check_registry,
     check_requests,
     check_state_patch,
     check_writing_review,
@@ -228,3 +230,57 @@ def test_check_job_record() -> None:
         "sha256": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     }]
     assert len(check_job_record(bad_ctx)) >= 1
+
+
+def test_check_character() -> None:
+    doc = load_yaml(FIXTURES_DIR / "character.yaml")
+    assert check_character(doc) == []
+
+    # 違反: address に自分の id
+    bad_addr = copy.deepcopy(doc)
+    bad_addr["address"]["C001"] = "自分"
+    assert len(check_character(bad_addr)) >= 1
+
+    # 違反: relationships[].with に自分の id
+    bad_rel = copy.deepcopy(doc)
+    bad_rel["relationships"].append({"with": "C001", "state": "自問自答"})
+    assert len(check_character(bad_rel)) >= 1
+
+    # 違反: knowledge の id 重複
+    bad_know = copy.deepcopy(doc)
+    bad_know["knowledge"].append({
+        "id": "K014",
+        "fact": "別の事実",
+        "source_chapter": "ch-005",
+    })
+    assert len(check_character(bad_know)) >= 1
+
+
+def test_check_registry() -> None:
+    doc = load_yaml(FIXTURES_DIR / "registry.yaml")
+    assert check_registry(doc) == []
+
+    # 違反: id 重複
+    bad_dup = copy.deepcopy(doc)
+    dup_item = copy.deepcopy(bad_dup[0])
+    dup_item["name"] = "別の紋章"
+    bad_dup.append(dup_item)
+    assert len(check_registry(bad_dup)) >= 1
+
+    # 違反: status が resolved なのに resolved が null
+    bad_res_null = copy.deepcopy(doc)
+    bad_res_null[0]["status"] = "resolved"
+    bad_res_null[0]["resolved"] = None
+    assert len(check_registry(bad_res_null)) >= 1
+
+    # 正例: status が resolved で resolved が設定されている
+    good_resolved = copy.deepcopy(doc)
+    good_resolved[0]["status"] = "resolved"
+    good_resolved[0]["resolved"] = {"chapter": "ch-015", "scene": "S003"}
+    assert check_registry(good_resolved) == []
+
+    # 違反: status が active（resolved 以外）なのに resolved が入っている
+    bad_active_resolved = copy.deepcopy(doc)
+    bad_active_resolved[0]["status"] = "active"
+    bad_active_resolved[0]["resolved"] = {"chapter": "ch-015", "scene": "S003"}
+    assert len(check_registry(bad_active_resolved)) >= 1

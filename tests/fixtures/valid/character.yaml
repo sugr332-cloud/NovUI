@@ -1,0 +1,36 @@
+id: C001
+name: 山田太郎
+personality:
+  - 冷静
+  - 弱みを見せない
+behavior:
+  - 危険時に仲間を優先する
+speech:
+  first_person: 俺
+  formality: casual
+  endings: [だ, だろ]
+  habits: []
+  forbidden: [僕]
+address:
+  default: お前
+  C002:
+    default: 美咲
+    changes:
+      - value: 君
+        from: {chapter: ch-018, scene: S004}
+        reason: 関係性の変化
+  C003: 先生
+relationships:
+  - with: C002
+    state: 幼なじみ
+    changes: []
+exceptions:
+  - rule: speech.formality
+    from: {chapter: ch-010, scene: S002}
+    to: {chapter: ch-010, scene: S003}
+    reason: 公的な場面
+knowledge:
+  - id: K014
+    fact: 門番が紋章に反応したことを知っている
+    source_chapter: ch-004
+notes: ""

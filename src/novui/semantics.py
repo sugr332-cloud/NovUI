@@ -173,6 +173,62 @@ def check_job_record(doc: Any) -> list[str]:
     return errors
 
 
+def check_character(doc: Any) -> list[str]:
+    """Validate character document semantics."""
+    errors: list[str] = []
+    my_id = doc.get("id")
+
+    address = doc.get("address", {})
+    if isinstance(address, dict):
+        for k in address.keys():
+            if k != "default" and k == my_id:
+                errors.append(f"address key {k!r} cannot be the character's own id")
+
+    relationships = doc.get("relationships", [])
+    if isinstance(relationships, list):
+        for r in relationships:
+            if isinstance(r, dict) and r.get("with") == my_id:
+                errors.append(f"relationships with {my_id!r} cannot be the character's own id")
+
+    knowledge = doc.get("knowledge", [])
+    if isinstance(knowledge, list):
+        seen_k_ids: set[str] = set()
+        for k in knowledge:
+            if isinstance(k, dict):
+                kid = k.get("id")
+                if kid in seen_k_ids:
+                    errors.append(f"Duplicate knowledge id: {kid!r}")
+                seen_k_ids.add(kid)
+
+    return errors
+
+
+def check_registry(doc: Any) -> list[str]:
+    """Validate foreshadowing registry document semantics."""
+    errors: list[str] = []
+    if not isinstance(doc, list):
+        return ["registry document must be an array"]
+
+    seen_ids: set[str] = set()
+    for item in doc:
+        if isinstance(item, dict):
+            fid = item.get("id")
+            if fid in seen_ids:
+                errors.append(f"Duplicate foreshadowing id: {fid!r}")
+            seen_ids.add(fid)
+
+            status = item.get("status")
+            resolved = item.get("resolved")
+            if status == "resolved":
+                if resolved is None:
+                    errors.append(f"Foreshadowing {fid!r} has status 'resolved' but resolved position is null")
+            else:
+                if resolved is not None:
+                    errors.append(f"Foreshadowing {fid!r} has status {status!r} but resolved position is not null")
+
+    return errors
+
+
 def _no_op_check(_doc: Any) -> list[str]:
     return []
 
@@ -205,6 +261,8 @@ SEMANTIC_CHECKS: dict[str, Callable[[Any], list[str]]] = _SemanticChecksDict({
     "approval": check_approval,
     "requests": check_requests,
     "job_record": check_job_record,
+    "character": check_character,
+    "registry": check_registry,
     "review": _no_op_check,
     "summary": _no_op_check,
 })

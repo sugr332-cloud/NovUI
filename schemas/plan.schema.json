@@ -46,7 +46,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "pattern": "^S[0-9]+$" },
+          "id": { "$ref": "common.schema.json#/$defs/scene_id" },
           "summary": { "$ref": "common.schema.json#/$defs/nonempty_string" },
           "actions": {
             "type": "array",
@@ -62,7 +62,7 @@
           },
           "foreshadowing": {
             "type": "array",
-            "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+            "items": { "$ref": "common.schema.json#/$defs/foreshadow_id" }
           }
         },
         "required": [

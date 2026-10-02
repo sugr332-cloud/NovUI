@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/character.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "common.schema.json#/$defs/character_id" },
+    "name": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+    "personality": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    },
+    "behavior": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    },
+    "speech": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first_person": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "formality": {
+          "type": "string",
+          "enum": ["casual", "polite", "mixed"]
+        },
+        "endings": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        },
+        "habits": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        },
+        "forbidden": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        }
+      }
+    },
+    "address": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+      },
+      "patternProperties": {
+        "^C[0-9]{3,}$": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/nonempty_string" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "default": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+                "changes": {
+                  "type": "array",
+                  "items": { "$ref": "common.schema.json#/$defs/change" }
+                }
+              },
+              "required": ["default"]
+            }
+          ]
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "with": { "$ref": "common.schema.json#/$defs/character_id" },
+          "state": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "changes": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/change" }
+          }
+        },
+        "required": ["with", "state"]
+      }
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "from": { "$ref": "common.schema.json#/$defs/position" },
+          "to": { "$ref": "common.schema.json#/$defs/position" },
+          "reason": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        },
+        "required": ["rule", "from", "to", "reason"]
+      }
+    },
+    "knowledge": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/knowledge_id" },
+          "fact": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "source_chapter": { "$ref": "common.schema.json#/$defs/chapter_id" }
+        },
+        "required": ["id", "fact", "source_chapter"]
+      }
+    },
+    "notes": { "type": "string" }
+  },
+  "required": ["id", "name"]
+}

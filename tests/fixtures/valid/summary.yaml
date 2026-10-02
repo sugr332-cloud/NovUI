@@ -15,7 +15,7 @@ characters:
 world_impacts:
   - "村からの旅立ち"
 foreshadowing:
-  - id: "F1"
+  - id: "F001"
     status: "active"
     note: "鍵の行方"
 next_start_state: "主人公が村の出口に立っている状態"

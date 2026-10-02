@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/registry.schema.json",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": { "$ref": "common.schema.json#/$defs/foreshadow_id" },
+      "name": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+      "status": {
+        "type": "string",
+        "enum": ["planned", "active", "resolved", "cancelled"]
+      },
+      "importance": {
+        "type": "string",
+        "enum": ["minor", "normal", "major"]
+      },
+      "introduced": {
+        "type": "array",
+        "items": { "$ref": "common.schema.json#/$defs/position" }
+      },
+      "hints": {
+        "type": "array",
+        "items": { "$ref": "common.schema.json#/$defs/position" }
+      },
+      "developments": {
+        "type": "array",
+        "items": { "$ref": "common.schema.json#/$defs/position" }
+      },
+      "planned_resolution": {
+        "oneOf": [
+          { "$ref": "common.schema.json#/$defs/position" },
+          { "type": "null" }
+        ]
+      },
+      "resolved": {
+        "oneOf": [
+          { "$ref": "common.schema.json#/$defs/position" },
+          { "type": "null" }
+        ]
+      },
+      "notes": { "type": "string" }
+    },
+    "required": [
+      "id",
+      "name",
+      "status",
+      "importance",
+      "introduced",
+      "hints",
+      "developments",
+      "planned_resolution",
+      "resolved",
+      "notes"
+    ]
+  }
+}

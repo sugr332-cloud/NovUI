@@ -20,6 +20,8 @@ class Settings:
     agy_image: str
     agy_token_path: Path
     timeouts: Mapping[str, int]
+    git_name: str = "NovUI Controller"
+    git_email: str = "novui@localhost"
 
 
 def _resolve_abs_path(val: str, var_name: str) -> Path:
@@ -41,6 +43,13 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     raw_data_dir = env.get("NOVUI_DATA_DIR", "~/.local/share/novui")
     raw_agy_image = env.get("NOVUI_AGY_IMAGE", "localhost/novui-spike:agy-1.2.14")
     raw_token_path = env.get("NOVUI_AGY_TOKEN", "~/.gemini/antigravity-cli/antigravity-oauth-token")
+    raw_git_name = env.get("NOVUI_GIT_NAME", "NovUI Controller")
+    raw_git_email = env.get("NOVUI_GIT_EMAIL", "novui@localhost")
+
+    if not raw_git_name:
+        raise ValueError("NOVUI_GIT_NAME must not be empty")
+    if not raw_git_email:
+        raise ValueError("NOVUI_GIT_EMAIL must not be empty")
 
     data_dir = _resolve_abs_path(raw_data_dir, "NOVUI_DATA_DIR")
     token_path = _resolve_abs_path(raw_token_path, "NOVUI_AGY_TOKEN")
@@ -55,4 +64,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         agy_image=raw_agy_image,
         agy_token_path=token_path,
         timeouts=DEFAULT_TIMEOUTS,
+        git_name=raw_git_name,
+        git_email=raw_git_email,
     )

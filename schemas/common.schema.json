@@ -22,6 +22,37 @@
       "type": "string",
       "pattern": "^C[0-9]{3,}$"
     },
+    "foreshadow_id": {
+      "type": "string",
+      "pattern": "^F[0-9]{3,}$"
+    },
+    "scene_id": {
+      "type": "string",
+      "pattern": "^S[0-9]+$"
+    },
+    "knowledge_id": {
+      "type": "string",
+      "pattern": "^K[0-9]{3,}$"
+    },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chapter": { "$ref": "#/$defs/chapter_id" },
+        "scene": { "$ref": "#/$defs/scene_id" }
+      },
+      "required": ["chapter", "scene"]
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "$ref": "#/$defs/nonempty_string" },
+        "from": { "$ref": "#/$defs/position" },
+        "reason": { "$ref": "#/$defs/nonempty_string" }
+      },
+      "required": ["value", "from", "reason"]
+    },
     "sha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"

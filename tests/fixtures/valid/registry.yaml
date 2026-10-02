@@ -1,0 +1,10 @@
+- id: F001
+  name: 王家の紋章
+  status: active
+  importance: major
+  introduced: [{chapter: ch-001, scene: S003}]
+  hints: [{chapter: ch-004, scene: S002}, {chapter: ch-008, scene: S001}]
+  developments: [{chapter: ch-010, scene: S004}]
+  planned_resolution: {chapter: ch-015, scene: S003}
+  resolved: null
+  notes: ""

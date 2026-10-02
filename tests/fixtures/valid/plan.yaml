@@ -21,7 +21,7 @@ scenes:
     settings_used:
       - "主人公の部屋"
     foreshadowing:
-      - "古びた鍵"
+      - "F001"
 prohibitions:
   - "現代俗語の使用禁止"
 connection:
