@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/works_registry.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "works": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "work_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "path": {
+            "$ref": "common.schema.json#/$defs/nonempty_string"
+          },
+          "format_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "archived"]
+          }
+        },
+        "required": [
+          "work_key",
+          "path",
+          "format_version",
+          "state"
+        ]
+      }
+    }
+  },
+  "required": [
+    "works"
+  ]
+}

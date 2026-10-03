@@ -1,5 +1,6 @@
 """Semantic validations that go beyond JSON Schema."""
 
+from pathlib import Path
 from typing import Any, Callable
 from novui.paths import is_safe_relpath
 
@@ -247,6 +248,29 @@ def check_model_catalog(doc: Any) -> list[str]:
     return errors
 
 
+def check_works_registry(doc: Any) -> list[str]:
+    """Validate works registry semantics."""
+    errors: list[str] = []
+    if not isinstance(doc, dict):
+        return errors
+    works = doc.get("works", [])
+    if isinstance(works, list):
+        seen_keys: set[str] = set()
+        for w in works:
+            if isinstance(w, dict):
+                k = w.get("work_key")
+                if k in seen_keys:
+                    errors.append(f"Duplicate work_key: {k!r}")
+                if k is not None:
+                    seen_keys.add(k)
+                p = w.get("path")
+                if p is not None:
+                    path_obj = Path(p)
+                    if not path_obj.is_absolute():
+                        errors.append(f"path must be an absolute path, got: {p!r}")
+    return errors
+
+
 def _no_op_check(_doc: Any) -> list[str]:
     return []
 
@@ -285,5 +309,10 @@ SEMANTIC_CHECKS: dict[str, Callable[[Any], list[str]]] = _SemanticChecksDict({
     "summary": _no_op_check,
     "model_catalog": check_model_catalog,
     "controller_settings": _no_op_check,
+    "project": _no_op_check,
+    "chapters_order": _no_op_check,
+    "prohibited": _no_op_check,
+    "works_registry": check_works_registry,
 })
+
 

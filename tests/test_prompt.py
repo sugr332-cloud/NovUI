@@ -9,6 +9,8 @@ from novui.prompt import (
     BuiltPrompt,
     ContextEntry,
     build_agy_prompt,
+    build_claude_prompt,
+    load_prompt_template,
 )
 
 
@@ -87,3 +89,65 @@ def test_build_agy_prompt_validation(tmp_path: Path) -> None:
     bad_file.write_bytes(b"\xff\xfe\x00\x00")
     with pytest.raises(ValueError, match="not valid UTF-8"):
         build_agy_prompt(tmp_path, ["bad.bin"], "指示")
+
+
+def test_load_prompt_template() -> None:
+    # preamble: 置き換えなしで読み込める
+    preamble = load_prompt_template("preamble")
+    assert "NovUI" in preamble
+    assert "{{" not in preamble
+
+    # plan: {{chapter_id}} の置換
+    plan_prompt = load_prompt_template("plan", chapter_id="ch-042")
+    assert "ch-042" in plan_prompt
+    assert "{{chapter_id}}" not in plan_prompt
+    assert "{{" not in plan_prompt
+
+    # {{ が残っていると ValueError
+    with pytest.raises(ValueError, match="Unsubstituted template placeholder"):
+        load_prompt_template("plan")
+
+    # 不正な name
+    with pytest.raises(ValueError, match="Invalid template name"):
+        load_prompt_template("Plan")
+    with pytest.raises(ValueError, match="Invalid template name"):
+        load_prompt_template("plan-test")
+    with pytest.raises(ValueError, match="Invalid template name"):
+        load_prompt_template("../secret")
+
+    # 存在しないテンプレート
+    with pytest.raises(FileNotFoundError):
+        load_prompt_template("nonexistent_template_xyz")
+
+
+def test_build_claude_prompt(tmp_path: Path) -> None:
+    f1 = tmp_path / "world" / "setting.yaml"
+    f1.parent.mkdir(parents=True)
+    c1 = "location: 港町\n"
+    f1.write_text(c1, encoding="utf-8")
+
+    task_text = "【作業】章 ch-001 の執筆計画（plan）を作ってください。\n詳細..."
+    built = build_claude_prompt(
+        root=tmp_path,
+        context_paths=["world/setting.yaml"],
+        task_text=task_text,
+    )
+
+    preamble = load_prompt_template("preamble")
+    assert isinstance(built, BuiltPrompt)
+    assert built.size_bytes == len(built.text.encode("utf-8"))
+    assert len(built.context) == 1
+    assert built.context[0].path == "world/setting.yaml"
+
+    # 先頭が preamble.md、末尾が task_text（【指示】は含まれない）
+    assert built.text.startswith(preamble)
+    assert built.text.endswith(task_text)
+    assert "【指示】" not in built.text
+    assert "【作業】" in built.text
+
+    # バリデーション
+    with pytest.raises(ValueError, match="task_text cannot be empty"):
+        build_claude_prompt(tmp_path, [], "")
+    with pytest.raises(ValueError, match="NUL"):
+        build_claude_prompt(tmp_path, [], "task\x00invalid")
+

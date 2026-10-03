@@ -4,15 +4,16 @@ import copy
 from pathlib import Path
 import pytest
 
-from novui.schema import SCHEMA_DIR, load_registry, validate, validate_or_raise
+from novui.schema import SCHEMA_DIR, bundle_schema, load_registry, validate, validate_or_raise
 from novui.semantics import SEMANTIC_CHECKS
 from novui.yamlio import load_yaml
+from jsonschema import Draft202012Validator
 
 import json
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
 
-ALL_15_SCHEMAS = [
+ALL_19_SCHEMAS = [
     "chapter",
     "plan",
     "integrity_review",
@@ -28,6 +29,10 @@ ALL_15_SCHEMAS = [
     "registry",
     "model_catalog",
     "controller_settings",
+    "project",
+    "chapters_order",
+    "prohibited",
+    "works_registry",
 ]
 
 
@@ -37,7 +42,7 @@ def test_load_registry_all_schemas() -> None:
     assert registry is not None
 
 
-@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
 def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     # 各正例フィクスチャが検証エラー0件、かつ semantics エラー0件
     path = FIXTURES_DIR / f"{schema_name}.yaml"
@@ -54,14 +59,17 @@ def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     validate_or_raise(doc, schema_name)
 
 
-@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
 def test_missing_required_property_fails(schema_name: str) -> None:
+    schema_file = SCHEMA_DIR / f"{schema_name}.schema.json"
+    schema_data = json.loads(schema_file.read_text(encoding="utf-8"))
+
+    if schema_data.get("type") == "array" and "$ref" in schema_data.get("items", {}):
+        pytest.skip(f"Schema {schema_name} is an array of scalar/ref values without required properties")
+
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
     corrupted = copy.deepcopy(doc)
-
-    schema_file = SCHEMA_DIR / f"{schema_name}.schema.json"
-    schema_data = json.loads(schema_file.read_text(encoding="utf-8"))
 
     if isinstance(corrupted, dict):
         required_keys = schema_data.get("required", [])
@@ -87,7 +95,7 @@ def test_missing_required_property_fails(schema_name: str) -> None:
     assert len(errors) > 0, f"Expected validation error for missing property in {schema_name}"
 
 
-@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
 def test_additional_property_rejected(schema_name: str) -> None:
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
@@ -96,6 +104,8 @@ def test_additional_property_rejected(schema_name: str) -> None:
     if isinstance(corrupted, dict):
         corrupted["unexpected_extra_field"] = "some_value"
     elif isinstance(corrupted, list) and corrupted:
+        if not isinstance(corrupted[0], dict):
+            pytest.skip(f"Schema {schema_name} is an array of non-object items")
         corrupted[0]["unexpected_extra_field"] = "some_value"
 
     errors = validate(corrupted, schema_name)
@@ -211,4 +221,88 @@ def test_job_record_with_cli_info() -> None:
     missing_actual = copy.deepcopy(agy_doc)
     del missing_actual["cli"]["actual_model"]
     assert len(validate(missing_actual, "job_record")) > 0
+
+
+def _assert_no_external_refs(node: object) -> None:
+    if isinstance(node, dict):
+        if "$ref" in node:
+            ref = node["$ref"]
+            assert isinstance(ref, str)
+            assert ref.startswith("#/"), f"External or non-#/ $ref found: {ref!r}"
+        for v in node.values():
+            _assert_no_external_refs(v)
+    elif isinstance(node, list):
+        for item in node:
+            _assert_no_external_refs(item)
+
+
+NEGATIVE_SAMPLES: dict[str, object] = {
+    "chapter": {"id": "ch-001"},
+    "plan": {"chapter_id": "ch-001"},
+    "integrity_review": {"chapter_id": "ch-001"},
+    "writing_review": {"chapter_id": "ch-001"},
+    "review": {"chapter_id": "ch-001"},
+    "requests": [{"type": "unknown_type"}],
+    "summary": {"chapter_id": "ch-001"},
+    "state_patch": {"patch_id": "P-001"},
+    "instruction_routing": {"instruction_id": "I-001"},
+    "approval": {"approval_id": "A-0001"},
+    "job_record": {"job_id": "job-1"},
+    "character": {"id": "C001"},
+    "registry": [{"id": "INVALID"}],
+    "model_catalog": {"fetched_at": "not-a-datetime"},
+    "controller_settings": {"format_version": 999},
+    "project": {"work_key": "INVALID KEY!"},
+    "chapters_order": ["invalid-chapter-id"],
+    "prohibited": {"terms": "not-a-list"},
+    "works_registry": {"format_version": 1, "works": "not-a-dict"},
+}
+
+
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
+def test_bundle_schema_all_19(schema_name: str) -> None:
+    bundled = bundle_schema(schema_name)
+    assert "$id" not in bundled
+    assert "$schema" in bundled
+
+    # 1. Draft202012Validator.check_schema を通る
+    Draft202012Validator.check_schema(bundled)
+
+    # 2. #/ で始まらない $ref を含まない
+    _assert_no_external_refs(bundled)
+
+    # 3. tests/fixtures/valid/ の正例が bundle 後の schema（registry なし）で検証エラー0件
+    fixture_path = FIXTURES_DIR / f"{schema_name}.yaml"
+    assert fixture_path.is_file()
+    valid_doc = load_yaml(fixture_path)
+    validator = Draft202012Validator(bundled)
+    errors = list(validator.iter_errors(valid_doc))
+    assert errors == [], f"Validation errors on valid fixture with bundled {schema_name}: {errors}"
+
+    # 4. 負例でエラーになる
+    neg_doc = NEGATIVE_SAMPLES[schema_name]
+    neg_errors = list(validator.iter_errors(neg_doc))
+    assert len(neg_errors) > 0, f"Expected validation failure for negative sample on {schema_name}"
+
+
+def test_bundle_schema_unknown_and_invalid_ref(tmp_path: Path) -> None:
+    # 存在しないスキーマ名で ValueError
+    with pytest.raises(ValueError, match="Unknown schema"):
+        bundle_schema("non_existent_schema")
+
+    # 不正な $ref 形式で ValueError
+    bad_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "foo": {"$ref": "#/properties/bar"},
+        },
+    }
+    schema_dir = tmp_path / "bad_schemas"
+    schema_dir.mkdir()
+    (schema_dir / "bad.schema.json").write_text(json.dumps(bad_schema), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid or unsupported \\$ref"):
+        bundle_schema("bad", schema_dir=schema_dir)
+
 

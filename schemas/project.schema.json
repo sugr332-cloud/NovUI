@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/project.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format_version": {
+      "const": 1
+    },
+    "work_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "title": {
+      "$ref": "common.schema.json#/$defs/nonempty_string"
+    }
+  },
+  "required": [
+    "format_version",
+    "work_key",
+    "title"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/chapters_order.schema.json",
+  "type": "array",
+  "items": {
+    "$ref": "common.schema.json#/$defs/chapter_id"
+  },
+  "uniqueItems": true
+}
