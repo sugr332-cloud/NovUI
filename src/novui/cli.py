@@ -16,8 +16,10 @@ from novui.chapters import (
 from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeRunner
 from novui.config import Settings, load_settings
+from novui.container import run_container
+from novui.draftjob import run_chapter_draft_job
 from novui.jobrecord import load_job_record
-from novui.jobrunner import jobs_dir
+from novui.jobrunner import ContainerRunner, jobs_dir
 from novui.models import (
     fetch_agy_models,
     load_catalog,
@@ -63,6 +65,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rej.add_argument("--work", required=True, help="Novel work key")
     p_rej.add_argument("--chapter", required=True, help="Chapter ID")
 
+    # draft --work <key> --chapter <id>
+    p_draft = subparsers.add_parser("draft")
+    p_draft.add_argument("--work", required=True, help="Novel work key")
+    p_draft.add_argument("--chapter", required=True, help="Chapter ID")
+
     # show --work <key> [--chapter <id>]
     p_show = subparsers.add_parser("show")
     p_show.add_argument("--work", required=True, help="Novel work key")
@@ -82,11 +89,35 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _report_job(record: dict[str, Any]) -> int:
+    """Print job state and checks. Returns exit code: FAILED 2, WAITING_HUMAN 3, otherwise 0."""
+    state = record.get("state")
+    print(f"Job {record.get('job_id')} finished with state: {state}")
+    checks = record.get("checks", [])
+    for chk in checks:
+        name = chk.get("name")
+        status = chk.get("status")
+        print(f"Check {name}: {status}")
+        for d in chk.get("details", []):
+            print(f"  - {d}")
+    if state == "WAITING_HUMAN":
+        history = record.get("history", [])
+        reason = history[-1].get("reason") if history else None
+        if reason:
+            print(f"Reason: {reason}")
+    if state == "FAILED":
+        return 2
+    elif state == "WAITING_HUMAN":
+        return 3
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
     settings: Settings | None = None,
     claude_runner: ClaudeRunner = run_claude,
+    container_runner: ContainerRunner = run_container,
 ) -> int:
     """Entry point for NovUI CLI."""
     if argv is None:
@@ -118,20 +149,12 @@ def main(
         elif args.subcommand == "plan":
             work = get_work(cfg, args.work)
             record = run_plan_job(cfg, work, args.chapter, claude_runner=claude_runner)
-            state = record.get("state")
-            print(f"Job {record.get('job_id')} finished with state: {state}")
-            checks = record.get("checks", [])
-            for chk in checks:
-                name = chk.get("name")
-                status = chk.get("status")
-                print(f"Check {name}: {status}")
-                for d in chk.get("details", []):
-                    print(f"  - {d}")
-            if state == "FAILED":
-                return 2
-            elif state == "WAITING_HUMAN":
-                return 3
-            return 0
+            return _report_job(record)
+
+        elif args.subcommand == "draft":
+            work = get_work(cfg, args.work)
+            record = run_chapter_draft_job(cfg, work, args.chapter, container_runner=container_runner)
+            return _report_job(record)
 
         elif args.subcommand == "approve-plan":
             work = get_work(cfg, args.work)

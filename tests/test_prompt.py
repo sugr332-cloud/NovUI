@@ -119,6 +119,18 @@ def test_load_prompt_template() -> None:
     with pytest.raises(FileNotFoundError):
         load_prompt_template("nonexistent_template_xyz")
 
+    # group：agy のテンプレート、不正な group
+    draft_prompt = load_prompt_template(
+        "draft", group="agy", chapter_id="ch-001", scene_ids="S1", scene_count="1",
+        scene_marker_lines="<!-- scene: S1 -->", min_chars="10", max_chars="20",
+    )
+    assert draft_prompt.startswith("章 ch-001 の本文を書いてください。")
+    assert "{{" not in draft_prompt
+    with pytest.raises(FileNotFoundError):
+        load_prompt_template("draft")  # prompts/claude/draft.md はない
+    with pytest.raises(ValueError, match="Invalid template group"):
+        load_prompt_template("draft", group="../claude")
+
 
 def test_build_claude_prompt(tmp_path: Path) -> None:
     f1 = tmp_path / "world" / "setting.yaml"

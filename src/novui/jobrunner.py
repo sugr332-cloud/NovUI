@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from novui.agy_output import AgyOutputError, markers_to_requests, parse_agy_text
 from novui.checks import (
@@ -62,6 +62,8 @@ class DraftJobRequest:
     instruction: str
     target_chars: tuple[int, int] | None = None
     needs_validation: bool = False
+    # 本文（draft.md に書く文字列）を受け取り、追加の検査結果を返す（§11.3 の機械検査など）
+    extra_checks: Callable[[str], Sequence[CheckResult]] | None = None
 
 
 def jobs_dir(settings: Settings, work_key: str) -> Path:
@@ -254,6 +256,10 @@ def run_draft_job(
             min_c, max_c = req.target_chars
             char_chk = check_char_range(parsed.text, min_c, max_c)
             checks.append(char_chk)
+
+        # 13.8 Additional checks supplied by the caller
+        if req.extra_checks is not None and parsed is not None:
+            checks.extend(req.extra_checks(parsed.text))
 
         record["checks"] = [
             {"name": c.name, "status": c.status, "details": list(c.details)}

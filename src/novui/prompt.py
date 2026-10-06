@@ -33,11 +33,16 @@ PROMPTS_DIR: Path = Path(__file__).resolve().parents[2] / "prompts"
 _TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
 
-def load_prompt_template(name: str, **values: str) -> str:
-    """Load prompt template from prompts/claude/<name>.md and substitute {{key}} placeholders."""
+_TEMPLATE_GROUPS = frozenset({"claude", "agy"})
+
+
+def load_prompt_template(name: str, *, group: str = "claude", **values: str) -> str:
+    """Load prompt template from prompts/<group>/<name>.md and substitute {{key}} placeholders."""
+    if group not in _TEMPLATE_GROUPS:
+        raise ValueError(f"Invalid template group: {group!r}; must be one of {sorted(_TEMPLATE_GROUPS)}")
     if not _TEMPLATE_NAME_RE.match(name):
         raise ValueError(f"Invalid template name: {name!r}; must match ^[a-z0-9_]+$")
-    path = PROMPTS_DIR / "claude" / f"{name}.md"
+    path = PROMPTS_DIR / group / f"{name}.md"
     if not path.is_file():
         raise FileNotFoundError(f"Prompt template file not found: {path}")
     text = path.read_text(encoding="utf-8")
