@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/proposal.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "state_proposal" },
+    "job_id": { "$ref": "common.schema.json#/$defs/job_id" },
+    "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+    "branch": {
+      "type": "string",
+      "pattern": "^ai/ch-[0-9]{3,}/job-[0-9]+$"
+    },
+    "branch_head": { "$ref": "common.schema.json#/$defs/commit" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "approved", "rejected", "superseded", "invalid"]
+    },
+    "status_reason": { "type": ["string", "null"] },
+    "created_at": { "$ref": "common.schema.json#/$defs/datetime" },
+    "decided_at": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/datetime" },
+        { "type": "null" }
+      ]
+    },
+    "approval_id": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/approval_id" },
+        { "type": "null" }
+      ]
+    },
+    "summary": { "$ref": "summary.schema.json" },
+    "patches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "patch": { "$ref": "state_patch.schema.json" },
+          "patch_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+        },
+        "required": ["patch", "patch_sha256"]
+      }
+    },
+    "patch_set_sha256": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": [
+    "type",
+    "job_id",
+    "chapter_id",
+    "branch",
+    "branch_head",
+    "status",
+    "status_reason",
+    "created_at",
+    "decided_at",
+    "approval_id",
+    "summary",
+    "patches",
+    "patch_set_sha256"
+  ]
+}
