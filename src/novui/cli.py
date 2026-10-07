@@ -18,6 +18,7 @@ from novui.claudejob import ClaudeRunner
 from novui.config import Settings, load_settings
 from novui.container import run_container
 from novui.draftjob import run_chapter_draft_job
+from novui.finalize import discard_cycle, final_approve
 from novui.jobrecord import load_job_record
 from novui.jobrunner import ContainerRunner, jobs_dir
 from novui.models import (
@@ -27,11 +28,23 @@ from novui.models import (
     save_catalog,
     select_model,
 )
+from novui.locks import RunLock
 from novui.planjob import approve_plan, reject_plan, run_plan_job
-from novui.validatejob import DECISION_ACTIONS, decide_validation, run_validate_job, skip_validation
+from novui.requestflow import redraft, resolve_request, unresolved_requests
+from novui.stateupdate import approve_state, reject_state, run_state_update, show_proposal
+from novui.validatejob import (
+    DECISION_ACTIONS,
+    _read_branch_chapter_meta,
+    _read_branch_yaml,
+    decide_validation,
+    find_chapter_branch,
+    run_validate_job,
+    skip_validation,
+)
+from novui.workrepo import CommitGuardError, MergeConflict, chapter_branches, head_commit
 from novui.workinit import init_work
 from novui.works import get_work
-from novui.yamlio import dumps_yaml
+from novui.yamlio import dumps_yaml, load_yaml
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -89,6 +102,46 @@ def _build_parser() -> argparse.ArgumentParser:
     p_skip.add_argument("--chapter", required=True, help="Chapter ID")
     p_skip.add_argument("--reason", required=True, help="Reason for skipping validation")
 
+    # state-update --work <key> --chapter <id> [--replace]
+    p_su = subparsers.add_parser("state-update")
+    p_su.add_argument("--work", required=True, help="Novel work key")
+    p_su.add_argument("--chapter", required=True, help="Chapter ID")
+    p_su.add_argument("--replace", action="store_true", help="Supersede a pending proposal")
+
+    # approve-state --work <key> --chapter <id>
+    p_as = subparsers.add_parser("approve-state")
+    p_as.add_argument("--work", required=True, help="Novel work key")
+    p_as.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # reject-state --work <key> --chapter <id> --reason <text>
+    p_rs = subparsers.add_parser("reject-state")
+    p_rs.add_argument("--work", required=True, help="Novel work key")
+    p_rs.add_argument("--chapter", required=True, help="Chapter ID")
+    p_rs.add_argument("--reason", required=True, help="Reason for rejecting the proposal")
+
+    # final-approve --work <key> --chapter <id>
+    p_fa = subparsers.add_parser("final-approve")
+    p_fa.add_argument("--work", required=True, help="Novel work key")
+    p_fa.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # resolve-request --work <key> --chapter <id> --index <n> --decision <text>
+    p_rr = subparsers.add_parser("resolve-request")
+    p_rr.add_argument("--work", required=True, help="Novel work key")
+    p_rr.add_argument("--chapter", required=True, help="Chapter ID")
+    p_rr.add_argument("--index", required=True, type=int, help="Index of the request in requests.yaml")
+    p_rr.add_argument("--decision", required=True, help="Human decision")
+
+    # redraft --work <key> --chapter <id>
+    p_rd = subparsers.add_parser("redraft")
+    p_rd.add_argument("--work", required=True, help="Novel work key")
+    p_rd.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # discard --work <key> --chapter <id> [--force]
+    p_dc = subparsers.add_parser("discard")
+    p_dc.add_argument("--work", required=True, help="Novel work key")
+    p_dc.add_argument("--chapter", required=True, help="Chapter ID")
+    p_dc.add_argument("--force", action="store_true", help="Discard a HUMAN_APPROVED job branch")
+
     # show --work <key> [--chapter <id>]
     p_show = subparsers.add_parser("show")
     p_show.add_argument("--work", required=True, help="Novel work key")
@@ -129,6 +182,70 @@ def _report_job(record: dict[str, Any]) -> int:
     elif state == "WAITING_HUMAN":
         return 3
     return 0
+
+
+def _show_proposal_summary(settings: Settings, work: Any, chapter_id: str) -> None:
+    """Print the latest state update proposal of the chapter (any status)."""
+    proposal = show_proposal(settings, work, chapter_id)
+    if proposal is None:
+        return
+    print(
+        f"Proposal: {proposal['job_id']} [{proposal['status']}] "
+        f"(branch head {proposal['branch_head'][:10]})"
+    )
+    if proposal["status_reason"]:
+        print(f"  Reason: {proposal['status_reason']}")
+    summary = proposal["summary"]
+    print(f"  Summary events: {len(summary['events'])}")
+    for c in summary["characters"]:
+        print(
+            f"  - {c['id']}: knowledge +{len(c['knowledge_added'])}, "
+            f"relationship changes {len(c['relationship_changes'])}"
+        )
+    for f in summary["foreshadowing"]:
+        print(f"  - foreshadowing {f['id']}: {f['status']}")
+    if proposal["patches"]:
+        for e in proposal["patches"]:
+            print(f"  Patch: {e['patch']['target']} ({len(e['patch']['operations'])} operations)")
+    else:
+        print("  Patches: none (no setting file changes)")
+    jpath = jobs_dir(settings, work.work_key) / f"{proposal['job_id']}.yaml"
+    if jpath.is_file():
+        for chk in load_job_record(jpath).get("checks", []):
+            if chk.get("status") == "WARNING":
+                print(f"  Warning check {chk['name']}: {'; '.join(chk.get('details', []))}")
+
+
+def _show_cycle(settings: Settings, work: Any, chapter_id: str) -> None:
+    """Print the job branch state, the latest proposal and unresolved requests of the chapter."""
+    repo = work.path
+    branches = chapter_branches(repo, chapter_id)
+    if not branches:
+        return
+    if len(branches) > 1:
+        print(f"Job branches: {', '.join(branches)} (more than one; resolve by hand)")
+        return
+    branch = branches[0]
+    try:
+        meta = _read_branch_chapter_meta(repo, branch, chapter_id)
+        print(f"Job branch: {branch} (chapter state on the branch: {meta['state']})")
+    except Exception as exc:
+        print(f"Job branch: {branch} (chapter state unreadable: {exc})")
+    _show_proposal_summary(settings, work, chapter_id)
+    try:
+        requests = _read_branch_yaml(repo, branch, f"chapters/{chapter_id}/requests.yaml")
+    except Exception:
+        requests = None
+    if isinstance(requests, list) and requests:
+        pending = unresolved_requests(requests)
+        print(f"Requests: {len(pending)} unresolved of {sum(1 for r in requests if r.get('type') == 'request')}")
+        for i in pending:
+            print(f"  [{i}] {requests[i]['message']}")
+
+
+def _unresolved_after(record: dict[str, Any], chapter_id: str) -> list[int]:
+    path = Path(record["worktree"]) / "chapters" / chapter_id / "requests.yaml"
+    return unresolved_requests(load_yaml(path)) if path.is_file() else []
 
 
 def main(
@@ -190,6 +307,75 @@ def main(
             record = skip_validation(cfg, work, args.chapter, args.reason)
             return _report_job(record)
 
+        elif args.subcommand == "state-update":
+            work = get_work(cfg, args.work)
+            record = run_state_update(
+                cfg, work, args.chapter, replace=args.replace, claude_runner=claude_runner
+            )
+            rc = _report_job(record)
+            if record.get("state") == "WAITING_HUMAN":
+                _show_proposal_summary(cfg, work, args.chapter)
+                print("Awaiting approval: run approve-state or reject-state.")
+            return rc
+
+        elif args.subcommand == "approve-state":
+            work = get_work(cfg, args.work)
+            record = approve_state(cfg, work, args.chapter)
+            branch = find_chapter_branch(work.path, args.chapter)
+            print(f"Job {record.get('job_id')} finished with state: {record.get('state')}")
+            approval_id = record.get("approval_id")
+            if approval_id:
+                print(f"Approval-Id: {approval_id}")
+            else:
+                print("No approval record (the proposal has no setting file changes)")
+            print(f"Chapter {args.chapter} is HUMAN_APPROVED (commit {head_commit(work.path, branch)})")
+            return 0
+
+        elif args.subcommand == "reject-state":
+            work = get_work(cfg, args.work)
+            record = reject_state(cfg, work, args.chapter, args.reason)
+            print(f"Job {record.get('job_id')} finished with state: {record.get('state')}")
+            print(f"State update proposal for chapter {args.chapter} rejected")
+            return 0
+
+        elif args.subcommand == "final-approve":
+            work = get_work(cfg, args.work)
+            try:
+                commit = final_approve(cfg, work, args.chapter)
+            except (MergeConflict, CommitGuardError) as exc:
+                print(f"Final approval is waiting for a Human decision: {exc}")
+                for path in exc.paths:
+                    print(f"  - {path}")
+                print("main was not changed. Resolve the cause and run final-approve again, or discard.")
+                return 3
+            print(f"Chapter {args.chapter} is FINAL (merge commit {commit})")
+            return 0
+
+        elif args.subcommand == "resolve-request":
+            work = get_work(cfg, args.work)
+            record = resolve_request(cfg, work, args.chapter, args.index, args.decision)
+            print(f"Job {record.get('job_id')} finished with state: {record.get('state')}")
+            remaining = _unresolved_after(record, args.chapter)
+            print(f"Request {args.index} resolved; {len(remaining)} unresolved")
+            if not remaining:
+                print("All requests are resolved: run redraft to write the chapter again with these decisions.")
+            return 0
+
+        elif args.subcommand == "redraft":
+            work = get_work(cfg, args.work)
+            record = redraft(cfg, work, args.chapter, run_lock=RunLock(), container_runner=container_runner)
+            print(
+                "Note: the decisions apply to this chapter's text only. "
+                "To keep them for later chapters, edit the setting files directly."
+            )
+            return _report_job(record)
+
+        elif args.subcommand == "discard":
+            work = get_work(cfg, args.work)
+            discard_cycle(cfg, work, args.chapter, force=args.force)
+            print(f"Job branch of chapter {args.chapter} discarded")
+            return 0
+
         elif args.subcommand == "approve-plan":
             work = get_work(cfg, args.work)
             c_hash = approve_plan(cfg, work, args.chapter)
@@ -226,6 +412,7 @@ def main(
                                 )
                         except Exception:
                             pass
+                _show_cycle(cfg, work, args.chapter)
             else:
                 order = read_chapters_order(repo)
                 for ch_id in order:
