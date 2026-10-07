@@ -1,31 +1,34 @@
-【作業】章 {{chapter_id}} の本文の整合性を検査してください（整合性ゲート）。
+【作業】章 {{chapter_id}} の本文の整合性ゲート（integrity_review）を行ってください。
 
-上の資料のうち、chapters/{{chapter_id}}/draft.md が検査する本文、chapters/{{chapter_id}}/plan.yaml がこの章の執筆計画です。本文中の `<!-- scene: S1 -->` の行は場面の区切りの印で、本文ではありません。
+上の資料のうち、chapters/{{chapter_id}}/draft.md が検証する本文、chapters/{{chapter_id}}/plan.yaml がこの章の執筆計画、chapters/{{chapter_id}}/outline.md が Human の書いた章の概要です。その他の資料は、本文を書いたときに渡したものと同じ版です。本文の `<!-- scene: S1 -->` のような行は場面の区切りで、本文の一部ではありません。
 
-次の7つの観点で検査し、観点ごとに result（PASS・WARNING・STOP）と findings（指摘の一覧）を返してください。
+本文を資料と照らし合わせ、次の7つの観点を検査してください。資料に書かれていることだけを根拠にし、資料にない設定を正しいものとして補ってはいけません。
 
-| 観点 | 検査すること |
-|---|---|
-| character | 人物の一人称・口調・相手の呼び方が characters/ の設定と合っているか。性格・行動傾向から明らかに外れた言動がないか。人物がまだ知らないはずの情報を知っていないか |
-| world | 世界観の設定（world/ など）と矛盾する描写がないか |
-| timeline | 時系列（plot/timeline.yaml、前の章の要約）と矛盾がないか |
-| plot | outline と plan の出来事が描かれているか。plan にない大きな出来事が加わっていないか |
-| foreshadowing | 伏線（foreshadowing/registry.yaml、plan の scenes の foreshadowing）が plan どおりに扱われているか。伏線を早すぎる時点で明かしていないか |
-| plan_compliance | plan の場面の順序、視点（pov）、書いてはいけないこと（prohibitions）が守られているか |
-| undefined_setting | 設定にない固有名（人物・地名・組織・店・物の名前）、人物の過去・経歴・能力・人間関係、世界のしくみ・歴史・規則を、本文が新しく決めていないか（情景・感覚・しぐさ・名前のない端役の描写は問題にしない） |
+* character：人物の言動が characters/ の設定と合っているか。一人称（speech.first_person）、相手ごとの呼び方（address。changes があれば、その場面の位置で有効な値）、口調（speech の formality・endings・habits・forbidden）、性格・行動傾向（personality・behavior）、知識（knowledge と過去の章の summary にない情報を知っていないか）、人間関係（relationships）。exceptions に当たる場面では、その例外を正しいものとする。
+* world：世界観の設定（world/ など）と矛盾していないか。
+* timeline：出来事の順序・時間の経過が、plot/timeline.yaml、過去の章の summary、この章の中で矛盾していないか。
+* plot：outline と plan にない出来事を加えていないか、outline の出来事が抜けていないか。
+* foreshadowing：plan の場面が扱う伏線（F001 など）が、registry.yaml と plan のとおりに扱われているか。回収の内容が設定・plot と矛盾していないか。
+* plan_compliance：plan の scenes（順序・内容・登場人物）、pov、style_notes、prohibitions、connection に従っているか。
+* undefined_setting：資料にない設定（人物、地名、組織、出来事、能力、物の名前、時系列）を、本文が新しく決めていないか。
 
 判定の基準：
 
-* STOP：世界観の矛盾、人物の重大な逸脱、時系列の矛盾、伏線の破壊、設定にない重要事項の発明、plan への明白な違反、または判断できない場合。
-* WARNING：軽い不一致、気になる点、Human の判断が必要な点。
-* PASS：問題がない。
-* 全体の result は、7つの観点の result のうち最も重いもの（STOP ＞ WARNING ＞ PASS）にしてください。観点の result が PASS なら、その観点の findings に severity STOP の指摘を入れないでください。
+* 各観点の result は PASS・WARNING・STOP のいずれかです。問題がなければ PASS とし、findings は空にしてください。
+* STOP にするのは、世界観の矛盾、重大なキャラクター逸脱、時系列の矛盾、伏線の破壊、未定義設定の発明、plan 違反、そしてあなたが判断できない場合だけです。それ以外の問題は WARNING にしてください。
+* 性格・行動傾向の判定は WARNING を基本とし、明白な逸脱だけを STOP にしてください。
+* 伏線を「回収すべき」と独断で決めてはいけません。予定の変更や意図的な未回収かどうかは Human が判断します。
+* result が PASS の観点に、severity が STOP の finding を入れてはいけません。
+* 全体の result は、7つの観点の result のうち最も重いもの（STOP ＞ WARNING ＞ PASS）にしてください。
 
-findings の各指摘：
+各 finding の書き方：
 
-* severity：WARNING か STOP
-* anchor：本文の該当箇所。text は本文からそのまま抜き出した短い文字列（本文中で1か所に定まる長さにする）、before と after はその直前・直後の数文字（なければ空文字）。本文全体に関わる指摘など、箇所を示せない場合は null。
-* message：何が問題か（日本語）
-* evidence：根拠となる資料の記述（「characters/C001.yaml：first_person は 俺」のように、資料のパスと内容）
+* severity：WARNING か STOP。
+* anchor：問題の箇所。text は本文からそのまま抜き出した文字列（場面の区切りの行を含めない）、before・after はその直前・直後の本文の数十文字（なければ空文字）。本文の特定の箇所に当たらない問題（場面が抜けているなど）は null。
+* message：何が問題かを1〜2文で。character の finding では、人物 ID、規則（例：`speech.first_person`、`address.C002`）、設定での期待値、本文での値、場面の ID を含めてください。
+* evidence：根拠にした資料の箇所（例：`characters/C001.yaml speech.first_person: 俺`、`plan.yaml scenes S2 summary`）。
 
-type は `integrity_review`、chapter_id は `{{chapter_id}}` です。
+本文の書き直しや修正案は不要です。検出だけを行ってください。
+
+* type：`integrity_review`
+* chapter_id：`{{chapter_id}}`

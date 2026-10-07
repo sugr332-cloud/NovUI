@@ -308,3 +308,59 @@ def test_run_claude_job_prompt_error_queued(tmp_path: Path) -> None:
 
     saved = load_job_record(jobs_dir(settings, "test-work") / "job-6.yaml")
     assert saved["state"] == "QUEUED"
+
+
+def _proc(stdout: bytes, *, timed_out: bool = False) -> ProcResult:
+    return ProcResult(
+        exit_code=0, elapsed_seconds=1.0, timed_out=timed_out, signal_sent=None,
+        group_remaining=False, stdout=stdout, stderr=b"",
+    )
+
+
+def test_run_claude_call_success_and_same_launch(tmp_path: Path) -> None:
+    from novui.claudejob import run_claude_call
+
+    settings = _make_settings(tmp_path)
+    valid_plan = load_yaml(FIXTURES_DIR / "plan.yaml")
+    calls: list[dict[str, Any]] = []
+
+    def runner(**kwargs: Any) -> ProcResult:
+        assert list(kwargs["cwd"].iterdir()) == []
+        calls.append(kwargs)
+        return _proc(make_envelope(valid_plan))
+
+    out = run_claude_call(
+        settings, job_id="job-3", prompt_text="P", expected_type="plan", model="opus",
+        log_dir=tmp_path / "logs", log_name="job-3-plan", claude_runner=runner,
+    )
+    assert out.data == valid_plan
+    assert out.actual_model == "claude-opus-5-5"
+    assert out.unavailable is False
+    assert calls[0]["name"] == "job-3-plan-a1"
+    assert calls[0]["cwd"] == settings.data_dir / "claude-cwd" / "job-3"
+    assert calls[0]["timeout_seconds"] == 300
+    expected = {k: v for k, v in bundle_schema("plan").items() if k != "$schema"}
+    assert json.loads(calls[0]["json_schema"]) == expected
+    assert not calls[0]["cwd"].exists()
+
+
+def test_run_claude_call_unavailable_and_exhausted(tmp_path: Path) -> None:
+    from novui.claudejob import run_claude_call
+
+    settings = _make_settings(tmp_path)
+    kw = dict(prompt_text="P", expected_type="plan", model="opus", log_dir=tmp_path / "logs", log_name="x")
+
+    out = run_claude_call(settings, job_id="job-4", claude_runner=lambda **k: _proc(make_envelope(None, is_error=True)), **kw)
+    assert out.data is None
+    assert len(out.attempts) == 3
+    assert out.is_error_flags == (True, True, True)
+    assert out.unavailable is True
+
+    out = run_claude_call(settings, job_id="job-5", claude_runner=lambda **k: _proc(make_envelope({"type": "plan"})), **kw)
+    assert out.data is None
+    assert out.unavailable is False
+
+    out = run_claude_call(settings, job_id="job-6", claude_runner=lambda **k: _proc(b"", timed_out=True), **kw)
+    assert out.timed_out is True
+    assert out.unavailable is False
+    assert not (settings.data_dir / "claude-cwd" / "job-6").exists()

@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from novui.claude_cli import run_claude
 from novui.claude_output import (
+    AttemptRecord,
     OutputRetryExhausted,
     parse_claude_meta,
     run_with_output_retry,
@@ -193,5 +194,92 @@ def run_claude_job(
                 record = apply_transition(record, JobEvent.CHECK_FAILED, reason=str(exc))
                 save_job_record(jdir, record)
             raise
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
+
+
+@dataclass(frozen=True)
+class ClaudeCallOutcome:
+    """Result of run_claude_call. data is None unless a valid output was obtained."""
+
+    data: dict[str, Any] | None
+    attempts: tuple[AttemptRecord, ...]
+    is_error_flags: tuple[bool, ...]  # 試行ごとに、封筒の is_error が true だったか
+    last_result: ProcResult | None
+    actual_model: str | None
+    timed_out: bool
+
+    @property
+    def unavailable(self) -> bool:
+        """True if no valid output was obtained and every attempt returned is_error: true."""
+        return (
+            self.data is None
+            and not self.timed_out
+            and len(self.is_error_flags) > 0
+            and all(self.is_error_flags)
+        )
+
+
+def run_claude_call(
+    settings: Settings,
+    *,
+    job_id: str,
+    prompt_text: str,
+    expected_type: str,
+    model: str,
+    log_dir: Path,
+    log_name: str,
+    claude_runner: ClaudeRunner = run_claude,
+    max_retries: int = 2,
+) -> ClaudeCallOutcome:
+    """Call Claude for one output type with the same launch as run_claude_job, without a Job record.
+
+    The caller manages the Job record and state transitions.
+    """
+    schema_dict = bundle_schema(expected_type)
+    cli_schema = {k: v for k, v in schema_dict.items() if k != "$schema"}
+    schema_json = json.dumps(cli_schema, ensure_ascii=False, separators=(",", ":"))
+
+    cwd = settings.data_dir / "claude-cwd" / job_id
+    if cwd.exists():
+        raise FileExistsError(f"Claude cwd already exists: {cwd}")
+    cwd.mkdir(parents=True, exist_ok=False)
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    last_result: ProcResult | None = None
+    is_error_flags: list[bool] = []
+
+    def call(attempt: int) -> bytes:
+        nonlocal last_result
+        res = claude_runner(
+            prompt=prompt_text,
+            cwd=cwd,
+            model=model,
+            timeout_seconds=settings.timeouts["claude"],
+            log_dir=log_dir,
+            name=f"{log_name}-a{attempt}",
+            json_schema=schema_json,
+        )
+        last_result = res
+        if res.timed_out:
+            raise ClaudeTimedOut(f"Claude timed out after {settings.timeouts['claude']}s")
+        meta = parse_claude_meta(res.stdout) if res.stdout else None
+        is_error_flags.append(bool(meta is not None and meta.is_error is True))
+        return res.stdout
+
+    def actual_model() -> str | None:
+        if last_result is None or not last_result.stdout:
+            return None
+        meta = parse_claude_meta(last_result.stdout)
+        return meta.model_usage_keys[0] if (meta and meta.model_usage_keys) else None
+
+    try:
+        try:
+            data, attempts = run_with_output_retry(call, expected_type, max_retries=max_retries)
+            return ClaudeCallOutcome(data, tuple(attempts), tuple(is_error_flags), last_result, actual_model(), False)
+        except OutputRetryExhausted as exc:
+            return ClaudeCallOutcome(None, tuple(exc.attempts), tuple(is_error_flags), last_result, actual_model(), False)
+        except ClaudeTimedOut:
+            return ClaudeCallOutcome(None, (), tuple(is_error_flags), last_result, actual_model(), True)
     finally:
         shutil.rmtree(cwd, ignore_errors=True)

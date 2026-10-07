@@ -28,6 +28,7 @@ from novui.models import (
     select_model,
 )
 from novui.planjob import approve_plan, reject_plan, run_plan_job
+from novui.validatejob import DECISION_ACTIONS, decide_validation, run_validate_job, skip_validation
 from novui.workinit import init_work
 from novui.works import get_work
 from novui.yamlio import dumps_yaml
@@ -69,6 +70,24 @@ def _build_parser() -> argparse.ArgumentParser:
     p_draft = subparsers.add_parser("draft")
     p_draft.add_argument("--work", required=True, help="Novel work key")
     p_draft.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # validate --work <key> --chapter <id>
+    p_validate = subparsers.add_parser("validate")
+    p_validate.add_argument("--work", required=True, help="Novel work key")
+    p_validate.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # decide --work <key> --chapter <id> --action <action> [--reason <text>]
+    p_decide = subparsers.add_parser("decide")
+    p_decide.add_argument("--work", required=True, help="Novel work key")
+    p_decide.add_argument("--chapter", required=True, help="Chapter ID")
+    p_decide.add_argument("--action", required=True, choices=DECISION_ACTIONS, help="Human decision")
+    p_decide.add_argument("--reason", default=None, help="Reason (required for OVERRIDE and REQUEST_FIX)")
+
+    # skip-validation --work <key> --chapter <id> --reason <text>
+    p_skip = subparsers.add_parser("skip-validation")
+    p_skip.add_argument("--work", required=True, help="Novel work key")
+    p_skip.add_argument("--chapter", required=True, help="Chapter ID")
+    p_skip.add_argument("--reason", required=True, help="Reason for skipping validation")
 
     # show --work <key> [--chapter <id>]
     p_show = subparsers.add_parser("show")
@@ -154,6 +173,21 @@ def main(
         elif args.subcommand == "draft":
             work = get_work(cfg, args.work)
             record = run_chapter_draft_job(cfg, work, args.chapter, container_runner=container_runner)
+            return _report_job(record)
+
+        elif args.subcommand == "validate":
+            work = get_work(cfg, args.work)
+            record = run_validate_job(cfg, work, args.chapter, claude_runner=claude_runner)
+            return _report_job(record)
+
+        elif args.subcommand == "decide":
+            work = get_work(cfg, args.work)
+            record = decide_validation(cfg, work, args.chapter, args.action, args.reason)
+            return _report_job(record)
+
+        elif args.subcommand == "skip-validation":
+            work = get_work(cfg, args.work)
+            record = skip_validation(cfg, work, args.chapter, args.reason)
             return _report_job(record)
 
         elif args.subcommand == "approve-plan":
