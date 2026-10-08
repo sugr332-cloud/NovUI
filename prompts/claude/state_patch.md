@@ -26,20 +26,30 @@
 
 {{pointer_hints}}
 
+■ 対象ファイルに欄がない場合（重要）
+
+操作は「資料の対象ファイルに実在する場所」に対してだけ書けます。`-` による末尾への追加は、その配列が資料に実在する場合だけです。次の欄が資料の対象ファイルに無いときは、その欄への操作を書かないでください（欄ごと作る `add /knowledge` や `add /relationships/0/changes` なども書いてはいけません）。
+
+* knowledge：対象ファイルに `knowledge:` の欄があるときだけ、knowledge を追加できます。
+* 関係の変化：その相手の relationships の要素に `changes:` の欄があるときだけ、changes に追加できます。
+* 呼び方の変化：address の相手の値が object で、かつ `changes:` の欄があるときだけ、changes に追加できます。
+
+書けない部分は省き、書ける部分だけを提案してください。すべて書けない場合は、「変更が不要・表せない場合」のとおり `test` 操作1件にしてください。省いた内容は、reason に1文で書いてください（例：「C002 は knowledge の欄がないため、knowledge は反映しない」）。
+
 ■ 書いてよい変更
 
 対象が `characters/<ID>.yaml`（人物）の場合：
 
-* knowledge の追加：`{"op": "add", "path": "/knowledge/-", "value": {"id": "K…", "fact": "…", "source_chapter": "{{chapter_id}}"}}`
+* knowledge の追加（対象ファイルに `knowledge:` の欄があるときだけ）：`{"op": "add", "path": "/knowledge/-", "value": {"id": "K…", "fact": "…", "source_chapter": "{{chapter_id}}"}}`
   - fact は、summary のこの人物の knowledge_added の文を**そのまま**（1文字も変えずに）使ってください。summary にない事実を足してはいけません。
   - id は {{next_knowledge_id}} から始め、1件ごとに1ずつ増やしてください（K014 の次は K015）。同じ形式（K と3桁以上の数字）で書きます。
-* 関係の変化の追加：summary のこの人物の relationship_changes のうち、相手との関係が既に relationships にある場合は、先に `test` で相手を確認してから changes に追加します。
+* 関係の変化の追加：summary のこの人物の relationship_changes のうち、相手との関係が既に relationships にあり、その要素に `changes:` の欄がある場合だけ、先に `test` で相手を確認してから changes に追加します。
   - `{"op": "test", "path": "/relationships/<添字>/with", "value": "C002"}`
   - `{"op": "add", "path": "/relationships/<添字>/changes/-", "value": {"value": "<変化後の関係>", "from": {"chapter": "{{chapter_id}}", "scene": "S2"}, "reason": "<なぜ変わったか>"}}`
   - from.scene は、変化が本文で起きた場面の ID（{{scene_ids}} のいずれか）です。
   - 相手との関係がまだ relationships にない場合は、`{"op": "add", "path": "/relationships/-", "value": {"with": "C002", "state": "<本文に書かれた関係>"}}` で追加できます。
 * 呼び方の変化：本文で、その人物が相手の呼び方を**明確に変えた**場合だけ（関係の変化が summary にある相手に限ります）。
-  - 資料の address の相手の値が object（default と changes を持つ形）なら、`{"op": "add", "path": "/address/C002/changes/-", "value": {"value": "<新しい呼び方>", "from": {"chapter": "{{chapter_id}}", "scene": "S3"}, "reason": "<理由>"}}`
+  - 資料の address の相手の値が object で、かつ `changes:` の欄がある場合だけ、`{"op": "add", "path": "/address/C002/changes/-", "value": {"value": "<新しい呼び方>", "from": {"chapter": "{{chapter_id}}", "scene": "S3"}, "reason": "<理由>"}}`
   - 値が文字列の場合は、先に `{"op": "test", "path": "/address/C002", "value": "<元の文字列>"}` を置き、`{"op": "replace", "path": "/address/C002", "value": {"default": "<元の文字列>", "changes": [{…上と同じ形…}]}}` にします。
   - 相手の項目がまだない場合は、`{"op": "add", "path": "/address/C002", "value": "<呼び方>"}`。
 * 性格（personality）・行動傾向（behavior）・口調（speech）・例外（exceptions）・名前・notes は、あなたの提案では変えられません。本文でそれらが変わったように見えても、書かないでください（Human が別の手続きで決めます）。
