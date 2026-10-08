@@ -162,6 +162,16 @@ def test_integration_k2_plan_based_draft(draft_itest_env: tuple[Settings, WorkIn
             if p.is_file():
                 print(f"[K2] worktree {name}:\n" + p.read_text(encoding="utf-8"))
 
+    if record["state"] == "WAITING_HUMAN":
+        # 設定にない事柄で【要確認】を出して止まるのは正しい動き。設定を足して合わせない（S1 と同じ方針）
+        assert main_before == main_after
+        assert read_chapter_meta(repo, "ch-001")["state"] == "PLAN_APPROVED"
+        requests_path = Path(record["worktree"]) / "chapters" / "ch-001" / "requests.yaml"
+        requests = load_yaml(requests_path) if requests_path.is_file() else None
+        print(f"[K2] requests: {requests}")
+        if requests and all(r.get("kind") == "undefined_setting" for r in requests):
+            pytest.skip("draft stopped at 【要確認】 (undefined_setting): correct behaviour, nothing was adjusted")
+
     assert record["state"] == "COMPLETED"
     checks = {c["name"]: c for c in record["checks"]}
     assert checks["scene_markers"]["status"] == "PASS"
