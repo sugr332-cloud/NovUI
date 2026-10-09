@@ -197,3 +197,14 @@ Human の決定（2026-10-09）：分岐の中で呼び方・伏線・知識が�
 | 4 | 登場していない人物の台詞 | WARNING にする（画面外の声として意図的なら Human が CONTINUE）。行の頭に `@voice` のような印は作らない |
 | 5 | writing_review の台詞の長さ | 見る。上限の字数は rules/ に作品ごとに置く（無ければ見ない） |
 | 6 | エンジンの読み方 | エンジンは draft.md（行形式の Markdown）をそのまま読む。JSON の書き出しは作らない。形式の定義を `docs/script-format.md` に置き、エンジンとの約束とする |
+
+---
+
+## 9. 決定を受けて詰めた点（docs/script-format.md と agy-instruction-2e.md に反映）
+
+* **場面の始まりで背景と立ち絵を空にする。** 分岐から合流する場面で、どの道から来たかによって画面の状態が変わらないようにするため。各場面は `@bg` で始めるのが基本（無ければ WARNING）。
+* `@if` の中に置けるのは、台詞・心の声・地の文・`@face` だけ。立ち絵や背景を条件で変えると、画面の状態が道ごとに分かれ、検査も組み合わせになるため。
+* 選択肢が立てるフラグは1つまで（plan の choice の `flag`、台本の `+<フラグ>`）。
+* `flags/registry.yaml` の各フラグは `name`・`description`・`notes`。立てる位置は plan の choice から分かるので登録しない。flags/ は保護対象に加える（AI が書き換えない）。
+* 台詞の長さ（決定 5）は、writing_review ではなく**機械検査** `script_line_length` で見る（字数を数えるだけなので、Claude に頼むより確実）。上限は `rules/script.yaml` の `max_line_chars`（無ければ見ない）。
+* 文字数（target_chars）は、台詞・心の声・地の文の本文だけを数える。draft Job では jobrunner の文字数の検査を使わず（target_chars を渡さない）、台本の本文で数えた `char_count` を extra_checks で出す。
