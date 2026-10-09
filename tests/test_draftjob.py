@@ -8,6 +8,7 @@ import pytest
 from novui.chapters import ChapterError, add_chapter, read_chapter_meta, transition_on_main
 from novui.config import Settings
 from novui.draftjob import (
+    build_character_rules_text,
     build_draft_instruction,
     collect_draft_context,
     read_plan,
@@ -16,6 +17,7 @@ from novui.draftjob import (
 from novui.gitinspect import run_git
 from novui.jobrecord import load_job_record
 from novui.jobrunner import jobs_dir
+from novui.mechanical import load_mechanical_inputs
 from novui.models import save_catalog, select_model
 from novui.planjob import approve_plan
 from novui.procrun import ProcResult
@@ -23,7 +25,7 @@ from novui.states import ChapterEvent
 from novui.workinit import init_work
 from novui.workrepo import commit_all, head_commit, parse_trailers
 from novui.works import WorkInfo
-from novui.yamlio import dumps_yaml, load_yaml
+from novui.yamlio import dumps_yaml, load_yaml, loads_yaml
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
 MODEL = "gemini-3.8-flash-high"
@@ -382,7 +384,7 @@ def test_collect_draft_context_order(tmp_path: Path) -> None:
 
 
 def test_build_draft_instruction() -> None:
-    text = build_draft_instruction("ch-001", make_plan())
+    text = build_draft_instruction("ch-001", make_plan(), character_rules="なし")
     assert text.startswith("章 ch-001 の本文を書いてください。")
     assert "S1、S2 の 2 場面" in text
     assert "<!-- scene: S1 -->\n<!-- scene: S2 -->" in text
@@ -396,3 +398,47 @@ def test_read_plan_mismatch(tmp_path: Path) -> None:
     assert read_plan(work.path, "ch-001")["chapter_id"] == "ch-001"
     with pytest.raises(ChapterError, match="plan.yaml not found"):
         read_plan(work.path, "ch-002")
+
+
+# 2-D2：規則表（phase2d-design §3、決定 3）
+
+C001_WITH_CHANGE = {
+    "id": "C001", "name": "カイ", "speech": {"first_person": "俺"},
+    "address": {"default": "お前", "C002": {"default": "美咲", "changes": [
+        {"value": "君", "from": {"chapter": "ch-001", "scene": "S2"}, "reason": "関係性の変化"},
+    ]}},
+}
+
+
+def _rules_block(prompt: str) -> Any:
+    head = "「場面ごとの人物の規則」"
+    assert head in prompt
+    body = prompt.split(head, 1)[1].split("```yaml\n", 1)[1].split("\n```", 1)[0]
+    return loads_yaml(body)
+
+
+def test_draft_instruction_has_rule_tables_per_scene(tmp_path: Path) -> None:
+    settings, work = setup_work(tmp_path)
+    repo = work.path
+    (repo / "characters" / "C001.yaml").write_text(dumps_yaml(C001_WITH_CHANGE), encoding="utf-8")
+    commit_all(repo, "edit C001", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    runner = FakeRunner(GOOD_TEXT)
+
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=runner)
+
+    assert record["state"] == "COMPLETED"
+    tables = _rules_block(runner.prompt)
+    assert [s["scene"] for s in tables] == ["S1", "S2"]
+    assert tables[0]["characters"][0]["address"] == {"default": "お前", "C002": "美咲"}
+    assert tables[1]["characters"][0]["address"] == {"default": "お前", "C002": "君"}
+
+
+def test_character_rules_text_without_characters(tmp_path: Path) -> None:
+    plan = make_plan()
+    for scene in plan["scenes"]:
+        scene["characters"] = []
+    settings, work = setup_work(tmp_path, plan)
+    repo = work.path
+    assert build_character_rules_text(repo, "ch-001", plan, load_mechanical_inputs(repo)) == "なし"
+    text = build_draft_instruction("ch-001", plan, character_rules="なし")
+    assert "```yaml\nなし\n```" in text

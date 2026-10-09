@@ -122,7 +122,7 @@ def test_load_prompt_template() -> None:
     # group：agy のテンプレート、不正な group
     draft_prompt = load_prompt_template(
         "draft", group="agy", chapter_id="ch-001", scene_ids="S1", scene_count="1",
-        scene_marker_lines="<!-- scene: S1 -->", min_chars="10", max_chars="20",
+        scene_marker_lines="<!-- scene: S1 -->", min_chars="10", max_chars="20", character_rules="なし",
     )
     assert draft_prompt.startswith("章 ch-001 の本文を書いてください。")
     assert "{{" not in draft_prompt

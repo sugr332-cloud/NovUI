@@ -306,3 +306,48 @@ def test_bundle_schema_unknown_and_invalid_ref(tmp_path: Path) -> None:
         bundle_schema("bad", schema_dir=schema_dir)
 
 
+
+
+# 2-D2：integrity_review の finding の character（phase2d-design 決定 1）
+
+def _integrity_with(finding: dict, check: str = "character") -> dict:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "integrity_review.yaml"))
+    doc["result"] = "WARNING"
+    doc["checks"][check] = {"result": "WARNING", "findings": [finding]}
+    return doc
+
+
+def _finding(**overrides: object) -> dict:
+    f = {"severity": "WARNING", "anchor": None, "message": "m", "character": None, "evidence": []}
+    f.update(overrides)
+    return f
+
+
+CHAR = {"character_id": "C001", "rule": "address.C002", "expected": "美咲", "actual": "美咲ちゃん", "scene": "S1"}
+
+
+def test_integrity_finding_character_null_and_object() -> None:
+    assert validate(_integrity_with(_finding()), "integrity_review") == []
+    assert validate(_integrity_with(_finding(character=CHAR)), "integrity_review") == []
+
+
+def test_integrity_finding_character_required() -> None:
+    f = _finding()
+    del f["character"]
+    assert validate(_integrity_with(f), "integrity_review") != []
+
+
+@pytest.mark.parametrize("key", ["character_id", "rule", "expected", "actual", "scene"])
+def test_integrity_finding_character_fields_required(key: str) -> None:
+    c = dict(CHAR)
+    del c[key]
+    assert validate(_integrity_with(_finding(character=c)), "integrity_review") != []
+
+
+@pytest.mark.parametrize(
+    "key,value", [("character_id", "X1"), ("scene", "1"), ("expected", ""), ("extra", "x")]
+)
+def test_integrity_finding_character_invalid_values(key: str, value: str) -> None:
+    c = dict(CHAR)
+    c[key] = value
+    assert validate(_integrity_with(_finding(character=c)), "integrity_review") != []

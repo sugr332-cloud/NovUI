@@ -17,6 +17,7 @@ from novui.config import Settings
 from novui.draftjob import (
     DRAFT_MODEL_ROLE,
     _mark_drafted_on_branch,
+    build_character_rules_text,
     build_draft_instruction,
     collect_draft_context,
     read_plan,
@@ -223,8 +224,14 @@ def redraft(
         raise ChapterError(f"Chapter {chapter_id!r} must be PLAN_APPROVED on main to redraft, got: {cur}")
     plan = read_plan(repo, chapter_id)
     ctx_paths = tuple(collect_draft_context(repo, chapter_id, plan))
-    instruction = build_draft_instruction(chapter_id, plan) + "\n\n" + build_decision_section(requests)
     inputs = load_mechanical_inputs(repo)
+    instruction = (
+        build_draft_instruction(
+            chapter_id, plan, character_rules=build_character_rules_text(repo, chapter_id, plan, inputs)
+        )
+        + "\n\n"
+        + build_decision_section(requests)
+    )
     try:
         model = resolve_model(settings, DRAFT_MODEL_ROLE, work_key=work.work_key)
     except ModelUnavailable as exc:

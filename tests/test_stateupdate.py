@@ -78,7 +78,7 @@ def rich_setup(tmp_path: Path, *, with_changes: bool = True) -> tuple[Settings, 
         "speech": {"first_person": "俺", "forbidden": ["僕"]},
         "relationships": [rel],
         "address": {"default": "お前", "C002": {"default": "美咲", "changes": []}, "C004": "先生"},
-        "knowledge": [{"id": "K001", "fact": "既知の事実", "source_chapter": "ch-000"}],
+        "knowledge": [{"id": "K001", "fact": "既知の事実", "source_chapter": "ch-001"}],
     }
     (repo / "characters" / "C001.yaml").write_text(dumps_yaml(c1), encoding="utf-8")
     (repo / "characters" / "C002.yaml").write_text(

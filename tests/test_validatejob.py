@@ -17,6 +17,7 @@ from novui.models import save_catalog, select_model
 from novui.planjob import approve_plan
 from novui.procrun import ProcResult
 from novui.schema import validate_or_raise
+from novui.statepatch import sha256_bytes
 from novui.states import ChapterEvent
 from novui.validatejob import (
     _write_and_commit,
@@ -141,6 +142,7 @@ def integrity(result: str = "PASS", check: str = "character") -> dict[str, Any]:
                 "severity": result,
                 "anchor": {"text": "門番が紋章に目を留めた。", "before": "", "after": ""},
                 "message": "C001 speech.first_person: 期待 俺、本文 僕（S1）",
+                "character": None,
                 "evidence": ["characters/C001.yaml speech.first_person: 俺"],
             }],
         }
@@ -786,3 +788,95 @@ def test_cli_skip_validation(tmp_path: Path, capsys: pytest.CaptureFixture[str])
 def test_cli_validate_pass_exit_zero(tmp_path: Path) -> None:
     settings, work, _ = drafted(tmp_path)
     assert cli.main(["validate", "--work", work.work_key, "--chapter", CH], settings=settings, claude_runner=ok_claude()) == 0
+
+
+
+# --- 2-D2：規則表と finding の character（phase2d-design §4、決定 1） ---
+
+C001_WITH_CHANGE = {
+    "id": "C001", "name": "カイ", "speech": {"first_person": "俺", "forbidden": ["僕"]},
+    "address": {"default": "お前", "C002": {"default": "美咲", "changes": [
+        {"value": "君", "from": {"chapter": "ch-001", "scene": "S2"}, "reason": "関係性の変化"},
+    ]}},
+}
+
+
+def _drafted_with(tmp_path: Path, c1: dict[str, Any]) -> tuple[Settings, WorkInfo]:
+    settings, work = setup_work(tmp_path)
+    repo = work.path
+    (repo / "characters" / "C001.yaml").write_text(dumps_yaml(c1), encoding="utf-8")
+    commit_all(repo, "edit C001", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    rec = run_chapter_draft_job(settings, work, CH, container_runner=_agy_runner(GOOD_TEXT))
+    assert rec["state"] == "COMPLETED"
+    return settings, work
+
+
+def _rules_text(prompt: str) -> str:
+    head = "場面ごとの人物の規則（"
+    return prompt.split(head, 1)[1].split("```yaml\n", 1)[1].split("\n```", 1)[0]
+
+
+def test_validate_prompt_has_rule_tables_only_for_integrity(tmp_path: Path) -> None:
+    settings, work = _drafted_with(tmp_path, C001_WITH_CHANGE)
+    fake = ok_claude()
+    rec = run_validate_job(settings, work, CH, claude_runner=fake)
+    assert rec["state"] == "COMPLETED"
+    integ_prompt = fake.calls[0]["prompt"]
+    writ_prompt = fake.calls[1]["prompt"]
+    tables = loads_yaml(_rules_text(integ_prompt))
+    assert tables[0]["characters"][0]["address"]["C002"] == "美咲"
+    assert tables[1]["characters"][0]["address"]["C002"] == "君"
+    assert "場面ごとの人物の規則" not in writ_prompt
+    review = _branch_yaml(work.path, "chapters/ch-001/review.yaml")
+    assert {c["name"]: c["status"] for c in review["mechanical"]}["character_rules"] == "PASS"
+
+
+def test_validate_prompt_tables_hash(tmp_path: Path) -> None:
+    settings, work = _drafted_with(tmp_path, C001_WITH_CHANGE)
+    fake = ok_claude()
+    rec = run_validate_job(settings, work, CH, claude_runner=fake)
+    text = _rules_text(fake.calls[0]["prompt"])
+    chk = _checks(rec)["prompt_tables"]
+    assert chk["status"] == "PASS"
+    assert chk["details"] == [f"character_rules {sha256_bytes(text.encode('utf-8'))}"]
+
+
+def test_validate_character_rules_warning_waits_for_human(tmp_path: Path) -> None:
+    c1 = copy.deepcopy(C001_WITH_CHANGE)
+    c1["address"]["C002"]["changes"].append(
+        {"value": "あなた", "from": {"chapter": "ch-099", "scene": "S1"}, "reason": "r"}
+    )
+    settings, work = _drafted_with(tmp_path, c1)
+    rec = run_validate_job(settings, work, CH, claude_runner=ok_claude())
+    assert rec["state"] == "WAITING_HUMAN"
+    assert "character_rules" in rec["history"][-1]["reason"]
+    review = _branch_yaml(work.path, "chapters/ch-001/review.yaml")
+    chk = {c["name"]: c for c in review["mechanical"]}["character_rules"]
+    assert chk["status"] == "WARNING"
+    assert any("C001 address.C002 change from ch-099 S1" in d for d in chk["details"])
+
+
+def _character_finding() -> dict[str, Any]:
+    return {"character_id": "C001", "rule": "speech.first_person", "expected": "俺", "actual": "僕", "scene": "S1"}
+
+
+def test_validate_character_finding_kept_in_review(tmp_path: Path) -> None:
+    settings, work, _ = drafted(tmp_path)
+    out = integrity("WARNING")
+    out["checks"]["character"]["findings"][0]["character"] = _character_finding()
+    rec = run_validate_job(settings, work, CH, claude_runner=ok_claude(out))
+    assert rec["state"] == "WAITING_HUMAN"
+    review = _branch_yaml(work.path, "chapters/ch-001/review.yaml")
+    assert review["integrity"]["checks"]["character"]["findings"][0]["character"] == _character_finding()
+
+
+def test_validate_character_finding_outside_character_is_semantic_error(tmp_path: Path) -> None:
+    settings, work, _ = drafted(tmp_path)
+    bad = integrity("WARNING", check="plot")
+    bad["checks"]["plot"]["findings"][0]["character"] = _character_finding()
+    good = integrity("WARNING", check="plot")
+    fake = FakeClaude([envelope(bad), envelope(good)], [envelope(writing())])
+    rec = run_validate_job(settings, work, CH, claude_runner=fake)
+    assert fake.kinds() == ["integrity_review", "integrity_review", "writing_review"]
+    assert rec["state"] == "WAITING_HUMAN"
+    assert "semantic" in _checks(rec)["claude_integrity_review"]["details"][0]

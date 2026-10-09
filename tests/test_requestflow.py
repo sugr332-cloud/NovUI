@@ -14,10 +14,11 @@ from test_validatejob import GOOD_TEXT, _agy_runner  # noqa: E402
 
 from novui.chapters import ChapterError, read_chapter_meta
 from novui.config import Settings
-from novui.draftjob import build_draft_instruction, read_plan, run_chapter_draft_job
+from novui.draftjob import build_character_rules_text, build_draft_instruction, read_plan, run_chapter_draft_job
 from novui.gitinspect import get_changes, run_git
 from novui.jobrecord import save_job_record
 from novui.jobrunner import jobs_dir
+from novui.mechanical import load_mechanical_inputs
 from novui.models import ModelUnavailable
 from novui.procrun import ProcResult
 from novui.requestflow import (
@@ -237,7 +238,11 @@ def test_redraft_runs_a_new_draft_with_the_decisions(tmp_path: Path) -> None:
     plan = read_plan(repo, CH)
     assert prompt.startswith(first_prompt)  # same preamble, same context files, same base instruction
     assert prompt.endswith(
-        build_draft_instruction(CH, plan) + "\n\n" + build_decision_section(archived)
+        build_draft_instruction(
+            CH, plan,
+            character_rules=build_character_rules_text(repo, CH, plan, load_mechanical_inputs(repo)),
+        )
+        + "\n\n" + build_decision_section(archived)
     )
     assert "【Human の判断】" in prompt and f"判断：{D1}" in prompt and f"判断：{D2}" in prompt
     assert "確認事項：門番の名前" in prompt and "確認事項：通行の許可" in prompt

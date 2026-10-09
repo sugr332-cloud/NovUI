@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from novui.chapters import (
     ChapterError,
@@ -11,13 +11,14 @@ from novui.chapters import (
     read_chapter_meta,
     read_chapters_order,
 )
+from novui.charrules import render_rule_tables, scene_rule_tables
 from novui.config import Settings
 from novui.container import run_container
 from novui.ids import next_job_id
 from novui.jobrecord import apply_transition, new_job_record, save_job_record
 from novui.jobrunner import ContainerRunner, DraftJobRequest, jobs_dir, run_draft_job
 from novui.locks import RunLock, can_accept_write_job
-from novui.mechanical import load_mechanical_inputs, plan_ref_ids, run_draft_mechanical_checks
+from novui.mechanical import MechanicalInputs, load_mechanical_inputs, plan_ref_ids, run_draft_mechanical_checks
 from novui.models import ModelUnavailable, resolve_model
 from novui.paths import PathError, ensure_within, is_safe_relpath
 from novui.prompt import load_prompt_template
@@ -105,7 +106,14 @@ def collect_draft_context(root: Path, chapter_id: str, plan: dict[str, Any]) -> 
     return result
 
 
-def build_draft_instruction(chapter_id: str, plan: dict[str, Any]) -> str:
+def build_character_rules_text(
+    root: Path, chapter_id: str, plan: Mapping[str, Any], inputs: MechanicalInputs
+) -> str:
+    """Rule tables of the plan's scenes for {{character_rules}} (phase2d-design §3). 'なし' when empty."""
+    return render_rule_tables(scene_rule_tables(read_chapters_order(root), chapter_id, plan, inputs.characters))
+
+
+def build_draft_instruction(chapter_id: str, plan: dict[str, Any], *, character_rules: str) -> str:
     """Build AGY instruction text from prompts/agy/draft.md."""
     scene_ids = [s["id"] for s in plan["scenes"]]
     return load_prompt_template(
@@ -117,6 +125,7 @@ def build_draft_instruction(chapter_id: str, plan: dict[str, Any]) -> str:
         scene_marker_lines="\n".join(f"<!-- scene: {sid} -->" for sid in scene_ids),
         min_chars=str(plan["target_chars"]["min"]),
         max_chars=str(plan["target_chars"]["max"]),
+        character_rules=character_rules,
     ).rstrip("\n")
 
 
@@ -177,8 +186,10 @@ def run_chapter_draft_job(
 
     plan = read_plan(repo, chapter_id)
     ctx_paths = tuple(collect_draft_context(repo, chapter_id, plan))
-    instruction = build_draft_instruction(chapter_id, plan)
     inputs = load_mechanical_inputs(repo)
+    instruction = build_draft_instruction(
+        chapter_id, plan, character_rules=build_character_rules_text(repo, chapter_id, plan, inputs)
+    )
 
     actual_job_id = job_id or next_job_id(settings, work.work_key)
 

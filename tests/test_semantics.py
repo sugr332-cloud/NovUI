@@ -85,6 +85,7 @@ def test_check_integrity_review() -> None:
         "severity": "STOP",
         "anchor": None,
         "message": "重大な矛盾",
+        "character": None,
         "evidence": ["e1"],
     }]
     assert len(check_integrity_review(bad_finding)) >= 1
@@ -284,3 +285,20 @@ def test_check_registry() -> None:
     bad_active_resolved[0]["status"] = "active"
     bad_active_resolved[0]["resolved"] = {"chapter": "ch-015", "scene": "S003"}
     assert len(check_registry(bad_active_resolved)) >= 1
+
+
+def test_check_integrity_review_character_only_in_character_check() -> None:
+    doc = load_yaml(FIXTURES_DIR / "integrity_review.yaml")
+    char = {"character_id": "C001", "rule": "speech.first_person", "expected": "俺", "actual": "僕", "scene": "S1"}
+    finding = {"severity": "WARNING", "anchor": None, "message": "m", "character": char, "evidence": []}
+
+    ok = copy.deepcopy(doc)
+    ok["result"] = "WARNING"
+    ok["checks"]["character"] = {"result": "WARNING", "findings": [finding]}
+    assert check_integrity_review(ok) == []
+
+    bad = copy.deepcopy(doc)
+    bad["result"] = "WARNING"
+    bad["checks"]["plot"] = {"result": "WARNING", "findings": [finding]}
+    errs = check_integrity_review(bad)
+    assert len(errs) == 1 and "'plot' finding 0 has character" in errs[0]

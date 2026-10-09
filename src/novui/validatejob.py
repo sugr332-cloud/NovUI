@@ -10,7 +10,8 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from novui.chapters import ChapterError, ensure_main_ready
+from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order
+from novui.charrules import check_character_rules, render_rule_tables, scene_rule_tables
 from novui.checks import CheckResult, check_allowed_paths, check_char_range
 from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeCallOutcome, ClaudeRunner, claude_version, run_claude_call
@@ -24,6 +25,7 @@ from novui.mechanical import load_mechanical_inputs, run_draft_mechanical_checks
 from novui.prompt import build_claude_prompt, load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
 from novui.semantics import check_chapter
+from novui.statepatch import sha256_bytes
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
 from novui.workrepo import chapter_branches, commit_all
 from novui.works import WorkInfo
@@ -284,8 +286,13 @@ def run_validate_job(
         plan = read_plan(worktree, chapter_id)
         text = (worktree / _chapter_rel(chapter_id, "draft.md")).read_text(encoding="utf-8")
         mech: list[CheckResult] = [check_char_range(text, plan["target_chars"]["min"], plan["target_chars"]["max"])]
-        mech += run_draft_mechanical_checks(text, plan, load_mechanical_inputs(worktree))
+        inputs = load_mechanical_inputs(worktree)
+        mech += run_draft_mechanical_checks(text, plan, inputs)
+        order = read_chapters_order(worktree)
+        rule_tables = scene_rule_tables(order, chapter_id, plan, inputs.characters)
+        mech.append(check_character_rules(rule_tables))
         mechanical = [_check_dict(c) for c in mech]
+        character_rules = render_rule_tables(rule_tables)
 
         # 3. Claude（AGY に渡したのと同じ版の Context と本文）
         ctx_paths = [e["path"] for e in draft["context"]]
@@ -294,10 +301,10 @@ def run_validate_job(
             ctx_paths.append(draft_rel)
         log_dir = jdir / f"{actual_job_id}-logs"
 
-        def call(expected_type: str) -> ClaudeCallOutcome:
+        def call(expected_type: str, **values: str) -> ClaudeCallOutcome:
             nonlocal record
             built = build_claude_prompt(
-                worktree, ctx_paths, load_prompt_template(expected_type, chapter_id=chapter_id)
+                worktree, ctx_paths, load_prompt_template(expected_type, chapter_id=chapter_id, **values)
             )
             record["context"] = [{"path": e.path, "sha256": e.sha256} for e in built.context]
             outcome = run_claude_call(
@@ -332,7 +339,14 @@ def run_validate_job(
             save_job_record(jdir, record)
             return outcome
 
-        integ = call("integrity_review")
+        # 規則表は Context のファイルではなくプロンプトの本文に入るので、その hash を残す（phase2d-design §9）
+        record["checks"].append({
+            "name": "prompt_tables",
+            "status": "PASS",
+            "details": [f"character_rules {sha256_bytes(character_rules.encode('utf-8'))}"],
+        })
+        save_job_record(jdir, record)
+        integ = call("integrity_review", character_rules=character_rules)
         writ: ClaudeCallOutcome | None = None
         if integ.data is not None:
             writ = call("writing_review")

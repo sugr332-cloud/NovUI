@@ -57,6 +57,10 @@ def check_integrity_review(doc: Any) -> list[str]:
             for f in c_data.get("findings", []):
                 if f.get("severity") == "STOP":
                     errors.append(f"Check {name!r} has result PASS but contains a STOP finding")
+        if name != "character":
+            for i, f in enumerate(c_data.get("findings", [])):
+                if f.get("character") is not None:
+                    errors.append(f"Check {name!r} finding {i} has character but only 'character' findings may")
 
     expected_overall = rank_to_res[max_rank]
     actual_overall = doc.get("result")

@@ -4,6 +4,18 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "character_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "character_id": { "$ref": "common.schema.json#/$defs/character_id" },
+        "rule": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "expected": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "actual": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "scene": { "$ref": "common.schema.json#/$defs/scene_id" }
+      },
+      "required": ["character_id", "rule", "expected", "actual", "scene"]
+    },
     "finding": {
       "type": "object",
       "additionalProperties": false,
@@ -19,12 +31,18 @@
           ]
         },
         "message": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "character": {
+          "oneOf": [
+            { "$ref": "#/$defs/character_finding" },
+            { "type": "null" }
+          ]
+        },
         "evidence": {
           "type": "array",
           "items": { "type": "string" }
         }
       },
-      "required": ["severity", "anchor", "message", "evidence"]
+      "required": ["severity", "anchor", "message", "character", "evidence"]
     },
     "check_item": {
       "type": "object",
