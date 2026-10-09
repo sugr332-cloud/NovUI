@@ -47,7 +47,7 @@
 * severity：WARNING か STOP。
 * anchor：問題の箇所。text は本文からそのまま抜き出した文字列（場面の区切りの行を含めない）、before・after はその直前・直後の本文の数十文字（なければ空文字）。本文の特定の箇所に当たらない問題（場面が抜けているなど）は null。
 * message：何が問題かを1〜2文で。
-* character：character の観点の finding では、`{character_id, rule, expected, actual, scene}` を書いてください。character_id は人物 ID、rule は規則の名前（`speech.first_person`、`address.C002`、`address.default`、`speech.formality`、`personality` など）、expected は規則表での値、actual は本文での値（本文からそのまま抜き出す）、scene は場面の ID です。規則表の値と比べられない指摘（性格・知識など）でも、expected には根拠にした設定の値、actual には本文の該当箇所を書いてください。character 以外の観点の finding では null にしてください。
+* character：character の観点の finding では、`{character_id, rule, expected, actual, scene}` を書いてください。character_id は人物 ID、rule は規則の名前（`speech.first_person`、`address.C002`、`address.default`、`speech.formality`、`personality` など）、expected は規則表での値、actual は本文で使われた値で、どちらも値そのものだけを書きます（例：一人称なら expected `俺`・actual `僕`、呼び方なら expected `美咲`・actual `美咲ちゃん`。台詞の文全体は anchor に書く）。actual は本文の表記のまま抜き出してください。scene は場面の ID です。規則表の値と比べられない指摘（性格・知識など）でも、expected には根拠にした設定の値、actual には本文の該当箇所を書いてください。character 以外の観点の finding では null にしてください。
 * evidence：根拠にした資料の箇所（例：`characters/C001.yaml speech.first_person: 俺`、`plan.yaml scenes S2 summary`）。
 
 本文の書き直しや修正案は不要です。検出だけを行ってください。
