@@ -8,6 +8,8 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "plot",
     "foreshadowing/registry.yaml",
     "rules",
+    "flags",
+    "assets",
     ".novui",
 )
 

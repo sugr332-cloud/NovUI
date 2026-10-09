@@ -30,6 +30,14 @@
       "type": "string",
       "pattern": "^S[0-9]+$"
     },
+    "flag_name": {
+      "type": "string",
+      "pattern": "^(?!not$)[a-z][a-z0-9_]{0,63}$"
+    },
+    "display_name": {
+      "type": "string",
+      "pattern": "^[^\\s@<\\-［「（][^\\s［「（]*$"
+    },
     "knowledge_id": {
       "type": "string",
       "pattern": "^K[0-9]{3,}$"

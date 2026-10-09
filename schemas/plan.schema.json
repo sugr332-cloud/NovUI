@@ -63,7 +63,28 @@
           "foreshadowing": {
             "type": "array",
             "items": { "$ref": "common.schema.json#/$defs/foreshadow_id" }
-          }
+          },
+          "background": { "type": "string", "pattern": "^\\S+$" },
+          "extras": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "$ref": "common.schema.json#/$defs/display_name" }
+          },
+          "choice": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "text": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+                "goto": { "$ref": "common.schema.json#/$defs/scene_id" },
+                "flag": { "$ref": "common.schema.json#/$defs/flag_name" }
+              },
+              "required": ["text", "goto"]
+            }
+          },
+          "next": { "$ref": "common.schema.json#/$defs/scene_id" }
         },
         "required": [
           "id",

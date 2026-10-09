@@ -13,6 +13,10 @@
     },
     "title": {
       "$ref": "common.schema.json#/$defs/nonempty_string"
+    },
+    "text_format": {
+      "type": "string",
+      "enum": ["novel", "script"]
     }
   },
   "required": [

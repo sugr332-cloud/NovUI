@@ -351,3 +351,74 @@ def test_integrity_finding_character_invalid_values(key: str, value: str) -> Non
     c = dict(CHAR)
     c[key] = value
     assert validate(_integrity_with(_finding(character=c)), "integrity_review") != []
+
+
+# --- 2-E1：台本の形式の schema（phase2e-design §2・§3、script-format） ---
+
+def test_project_text_format() -> None:
+    base = {"format_version": 1, "work_key": "w", "title": "t"}
+    assert validate(base, "project") == []
+    assert validate({**base, "text_format": "script"}, "project") == []
+    assert validate({**base, "text_format": "novel"}, "project") == []
+    assert validate({**base, "text_format": "game"}, "project") != []
+
+
+@pytest.mark.parametrize("name,ok", [
+    ("カイ", True), ("門番A", True), ("Kai", True),
+    ("カイ 二世", False), ("@カイ", False), ("-カイ", False), ("<カイ", False),
+    ("カ「イ", False), ("［カイ", False), ("カ（イ", False), ("", False),
+])
+def test_character_display_name(name: str, ok: bool) -> None:
+    errs = validate({"id": "C001", "name": "a", "display_name": name}, "character")
+    assert (errs == []) is ok
+
+
+@pytest.mark.parametrize("exprs,ok", [
+    (["通常"], True), (["通常", "笑顔"], True), ([], False), (["通常", "通常"], False),
+    (["通 常"], False), (["通常］"], False),
+])
+def test_character_expressions(exprs: list, ok: bool) -> None:
+    assert (validate({"id": "C001", "name": "a", "expressions": exprs}, "character") == []) is ok
+
+
+def _plan_with(**scene_extra: object) -> dict:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "plan.yaml"))
+    doc["scenes"][0].update(scene_extra)
+    return doc
+
+
+@pytest.mark.parametrize("extra,ok", [
+    ({"background": "市場_昼"}, True),
+    ({"background": "市場 昼"}, False),
+    ({"extras": ["門番", "店主"]}, True),
+    ({"extras": ["門番", "門番"]}, False),
+    ({"extras": ["門 番"]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "flag": "f1"}, {"text": "b", "goto": "S3"}]}, True),
+    ({"choice": [{"text": "a", "goto": "S2"}]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "flag": "Bad"}, {"text": "b", "goto": "S3"}]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "flag": "not"}, {"text": "b", "goto": "S3"}]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "x": 1}, {"text": "b", "goto": "S3"}]}, False),
+    ({"next": "S3"}, True),
+    ({"next": "3"}, False),
+])
+def test_plan_scene_script_fields(extra: dict, ok: bool) -> None:
+    assert (validate(_plan_with(**extra), "plan") == []) is ok
+
+
+def test_flags_schema() -> None:
+    good = [{"name": "market_together", "description": "市場を一緒に回った", "notes": ""}]
+    assert validate(good, "flags") == []
+    assert validate([{"name": "market_together", "description": "d"}], "flags") != []
+    assert validate([{"name": "Market", "description": "d", "notes": ""}], "flags") != []
+    assert validate([{"name": "not", "description": "d", "notes": ""}], "flags") != []
+    assert validate([{"name": "notes", "description": "d", "notes": ""}], "flags") == []
+
+
+def test_backgrounds_and_script_rules_schema() -> None:
+    assert validate(["市場_昼", "港_夕"], "backgrounds") == []
+    assert validate(["市場_昼", "市場_昼"], "backgrounds") != []
+    assert validate(["市場 昼"], "backgrounds") != []
+    assert validate({"max_line_chars": 40}, "script_rules") == []
+    assert validate({}, "script_rules") == []
+    assert validate({"max_line_chars": 0}, "script_rules") != []
+    assert validate({"other": 1}, "script_rules") != []

@@ -2,10 +2,15 @@
 
 import copy
 from pathlib import Path
+
+import pytest
+
 from novui.semantics import (
+    SEMANTIC_CHECKS,
     check_approval,
     check_chapter,
     check_character,
+    check_flags,
     check_instruction_routing,
     check_integrity_review,
     check_job_record,
@@ -14,6 +19,7 @@ from novui.semantics import (
     check_requests,
     check_state_patch,
     check_writing_review,
+    plan_scene_successors,
 )
 from novui.yamlio import load_yaml
 
@@ -302,3 +308,67 @@ def test_check_integrity_review_character_only_in_character_check() -> None:
     bad["checks"]["plot"] = {"result": "WARNING", "findings": [finding]}
     errs = check_integrity_review(bad)
     assert len(errs) == 1 and "'plot' finding 0 has character" in errs[0]
+
+
+# --- 2-E1：plan の場面のつながり、flags、expressions ---
+
+
+def _flow_plan(*scenes: dict) -> dict:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "plan.yaml"))
+    base = doc["scenes"][0]
+    doc["scenes"] = [{**copy.deepcopy(base), **s} for s in scenes]
+    return doc
+
+
+def test_plan_flow_spec_example_ok() -> None:
+    doc = _flow_plan(
+        {"id": "S1", "choice": [{"text": "a", "goto": "S2", "flag": "f"}, {"text": "b", "goto": "S3"}]},
+        {"id": "S2", "next": "S4"},
+        {"id": "S3"},
+        {"id": "S4"},
+    )
+    assert check_plan(doc) == []
+    assert plan_scene_successors(doc["scenes"]) == {"S1": ["S2", "S3"], "S2": ["S4"], "S3": ["S4"], "S4": []}
+
+
+@pytest.mark.parametrize("scenes,message", [
+    (({"id": "S1", "choice": [{"text": "a", "goto": "S2"}, {"text": "b", "goto": "S3"}], "next": "S3"},
+      {"id": "S2"}, {"id": "S3"}), "both choice and next"),
+    (({"id": "S1"}, {"id": "S2", "next": "S1"}), "not a later scene"),
+    (({"id": "S1", "next": "S1"}, {"id": "S2"}), "not a later scene"),
+    (({"id": "S1", "next": "S9"}, {"id": "S2"}), "not in the plan"),
+    (({"id": "S1"}, {"id": "S2", "next": "S3"}), "not in the plan"),
+    (({"id": "S1", "choice": [{"text": "a", "goto": "S2"}, {"text": "b", "goto": "S2"}]}, {"id": "S2"}),
+     "duplicate choice targets"),
+    (({"id": "S1", "next": "S3"}, {"id": "S2"}, {"id": "S3"}), "S2 is not reachable"),
+    (({"id": "S1", "extras": ["門番", "門番"]},), "duplicate extras"),
+])
+def test_plan_flow_errors(scenes: tuple, message: str) -> None:
+    errs = check_plan(_flow_plan(*scenes))
+    assert any(message in e for e in errs), errs
+
+
+def test_plan_last_scene_next() -> None:
+    doc = _flow_plan({"id": "S1"}, {"id": "S2"})
+    doc["scenes"][1]["next"] = "S1"
+    errs = check_plan(doc)
+    assert any("last scene and must not have next" in e for e in errs)
+
+
+def test_plan_without_flow_fields_unchanged() -> None:
+    doc = _flow_plan({"id": "S1"}, {"id": "S2"}, {"id": "S3"})
+    assert check_plan(doc) == []
+    assert plan_scene_successors(doc["scenes"]) == {"S1": ["S2"], "S2": ["S3"], "S3": []}
+
+
+def test_check_flags() -> None:
+    assert check_flags([{"name": "a", "description": "d", "notes": ""}, {"name": "b", "description": "d", "notes": ""}]) == []
+    assert check_flags([{"name": "a", "description": "d", "notes": ""}] * 2) == ["Duplicate flag name: 'a'"]
+    assert check_flags({}) == ["flags document must be an array"]
+    assert SEMANTIC_CHECKS["flags"] is check_flags
+    assert SEMANTIC_CHECKS["backgrounds"]([]) == [] and SEMANTIC_CHECKS["script_rules"]({}) == []
+
+
+def test_check_character_duplicate_expressions() -> None:
+    assert check_character({"id": "C001", "name": "a", "expressions": ["通常", "通常"]}) == ["Duplicate expressions"]
+    assert check_character({"id": "C001", "name": "a", "expressions": ["通常", "笑顔"]}) == []

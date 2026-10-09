@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/flags.schema.json",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "$ref": "common.schema.json#/$defs/flag_name"
+      },
+      "description": {
+        "$ref": "common.schema.json#/$defs/nonempty_string"
+      },
+      "notes": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "description",
+      "notes"
+    ]
+  }
+}
