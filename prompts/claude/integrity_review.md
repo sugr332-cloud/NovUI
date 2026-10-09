@@ -14,7 +14,10 @@
 * world：世界観の設定（world/ など）と矛盾していないか。
 * timeline：出来事の順序・時間の経過が、plot/timeline.yaml、過去の章の summary、この章の中で矛盾していないか。
 * plot：outline と plan にない出来事を加えていないか、outline の出来事が抜けていないか。
-* foreshadowing：plan の場面が扱う伏線（F001 など）が、registry.yaml と plan のとおりに扱われているか。回収の内容が設定・plot と矛盾していないか。
+* foreshadowing：plan の場面が扱う伏線（F001 など）が、registry.yaml と plan のとおりに扱われているか。回収の内容が設定・plot と矛盾していないか。下の「伏線の状況」も見てください。
+  - 伏線の位置の順序（introduced より前の hints など）と、回収予定を過ぎた未回収の伏線は、Controller が機械検査で調べます。あなたは重ねて指摘しなくてかまいません。
+  - planned_resolution_in_this_chapter が true の伏線をこの章で回収していなくても、それだけで「回収すべき」と決めてはいけません。plan が回収を求めているのに本文が回収していない場合だけ指摘してください。
+  - importance が major の伏線が、本文で伏線の意味を失う扱い（矛盾する説明、否定、別の答えの提示）を受けていないかを見てください。
 * plan_compliance：plan の scenes（順序・内容・登場人物）、pov、style_notes、prohibitions、connection に従っているか。
 * undefined_setting：資料にない設定（人物、地名、組織、出来事、能力、物の名前、時系列）を、本文が新しく決めていないか。
 
@@ -22,6 +25,12 @@
 
 ```yaml
 {{character_rules}}
+```
+
+伏線の状況（Controller が registry.yaml と plan から作った表。この章の plan が扱う伏線と、未回収の major の伏線）：
+
+```yaml
+{{foreshadow_status}}
 ```
 
 判定の基準：
