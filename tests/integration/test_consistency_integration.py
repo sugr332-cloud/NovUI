@@ -231,6 +231,15 @@ def character_findings(review: dict[str, Any]) -> list[dict[str, Any]]:
     return [f["character"] for f in review["integrity"]["checks"]["character"]["findings"] if f["character"]]
 
 
+def speech_address_stops(review: dict[str, Any]) -> list[dict[str, Any]]:
+    """Findings on speech/address with severity STOP (design §4: these must be WARNING)."""
+    return [
+        f for f in review["integrity"]["checks"]["character"]["findings"]
+        if f["severity"] == "STOP" and f["character"]
+        and (f["character"]["rule"].startswith("speech.") or f["character"]["rule"].startswith("address."))
+    ]
+
+
 def has(found: list[dict[str, Any]], *, rule: str, expected: str, actual: str, scene: str, cid: str = "C001") -> bool:
     return any(
         c["character_id"] == cid and c["rule"] == rule and c["expected"] == expected and c["actual"] == actual
@@ -254,6 +263,8 @@ def test_d1_first_person(itest_env: tuple[Settings, Path]) -> None:
     found = character_findings(review)
     if not has(found, rule="speech.first_person", expected="俺", actual="僕", scene="S1"):
         fail_with(label, review, rules, "speech.first_person 俺/僕 at S1 was not reported")
+    if speech_address_stops(review):
+        fail_with(label, review, rules, "speech/address violations must be WARNING, not STOP")
 
 
 def test_d2_address(itest_env: tuple[Settings, Path]) -> None:
@@ -263,6 +274,8 @@ def test_d2_address(itest_env: tuple[Settings, Path]) -> None:
     found = character_findings(review)
     if not has(found, rule="address.C002", expected="美咲", actual="美咲ちゃん", scene="S1"):
         fail_with(label, review, rules, "address.C002 美咲/美咲ちゃん at S1 was not reported")
+    if speech_address_stops(review):
+        fail_with(label, review, rules, "speech/address violations must be WARNING, not STOP")
 
 
 def test_d3a_address_change_violated(itest_env: tuple[Settings, Path]) -> None:
@@ -277,6 +290,8 @@ def test_d3a_address_change_violated(itest_env: tuple[Settings, Path]) -> None:
         missing.append("S2 君/美咲")
     if missing:
         fail_with(label, review, rules, f"address.C002 not reported: {missing}")
+    if speech_address_stops(review):
+        fail_with(label, review, rules, "speech/address violations must be WARNING, not STOP")
 
 
 def test_d3b_address_change_followed_and_absent_character(itest_env: tuple[Settings, Path]) -> None:
