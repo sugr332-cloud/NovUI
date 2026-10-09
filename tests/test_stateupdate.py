@@ -253,10 +253,13 @@ def test_run_state_update_success(tmp_path: Path) -> None:
     assert names == [
         "draft_consistency", "claude_summary", "summary_refs",
         "claude_state_patch_1", "patch_target", "patch_policy", "patch_apply",
-        "claude_state_patch_2", "patch_target", "patch_policy", "patch_apply",
+        "claude_state_patch_2", "patch_target", "patch_policy", "patch_apply", "foreshadow_order",
         "summary_patch_consistency",
     ]
-    assert all(c["status"] == "PASS" for c in rec["checks"])
+    # 既定の reg_patch は introduced のない F001 に hints を足すので、2-D3 の foreshadow_order は WARNING
+    assert all(c["status"] == "PASS" for c in rec["checks"] if c["name"] != "foreshadow_order")
+    assert _checks(rec)["foreshadow_order"]["status"] == "WARNING"
+    assert _checks(rec)["foreshadow_order"]["details"] == ["F001 has hints/developments/resolved but no introduced"]
 
     # prompts: base_hash is the Controller's value, K numbering starts after the existing K001
     patch_prompt = fake.calls[1]["prompt"]
@@ -813,3 +816,46 @@ def test_show_proposal(tmp_path: Path) -> None:
     second = run_su(settings, work, good_su())
     assert show_proposal(settings, work, CH)["job_id"] == second["job_id"]
     assert loads_yaml(dumps_yaml(show_proposal(settings, work, CH)))["status"] == "pending"
+
+
+# ---------- 2-D3：registry の Patch のあとの伏線の順序（phase2d-design 決定 4） ----------
+
+def _order_check(rec: dict[str, Any]) -> dict[str, Any]:
+    found = [c for c in rec["checks"] if c["name"] == "foreshadow_order"]
+    assert len(found) == 1
+    return found[0]
+
+
+def _reg_ops(introduced: str, hint: str) -> list[dict[str, Any]]:
+    return [
+        {"op": "test", "path": "/0/id", "value": "F001"},
+        {"op": "add", "path": "/0/introduced/-", "value": {"chapter": CH, "scene": introduced}},
+        {"op": "add", "path": "/0/hints/-", "value": {"chapter": CH, "scene": hint}},
+        {"op": "replace", "path": "/0/status", "value": "active"},
+    ]
+
+
+def test_foreshadow_order_pass_for_good_registry_patch(tmp_path: Path) -> None:
+    settings, work, _ = validated(tmp_path)
+    rec = run_su(settings, work, good_su(**{f"patch:{REG}": [reg_patch(_reg_ops("S1", "S2"))]}))
+    assert rec["state"] == "WAITING_HUMAN"
+    assert _order_check(rec) == {"name": "foreshadow_order", "status": "PASS", "details": []}
+
+
+def test_foreshadow_order_warning_does_not_stop_proposal(tmp_path: Path) -> None:
+    settings, work, _ = validated(tmp_path)
+    rec = run_su(settings, work, good_su(**{f"patch:{REG}": [reg_patch(_reg_ops("S2", "S1"))]}))
+    assert rec["state"] == "WAITING_HUMAN"
+    chk = _order_check(rec)
+    assert chk["status"] == "WARNING"
+    assert chk["details"] == [f"F001 hints[0] {CH} S1 is before introduced {CH} S2"]
+    proposal = pending_proposal(settings, work.work_key, CH)
+    assert [e["patch"]["target"] for e in proposal["patches"]] == [CHAR, REG]
+
+
+def test_foreshadow_order_checked_for_noop_registry_patch(tmp_path: Path) -> None:
+    settings, work, _ = validated(tmp_path)
+    fake = good_su(**{f"patch:{REG}": [reg_patch([{"op": "test", "path": "/0/id", "value": "F001"}])]})
+    rec = run_su(settings, work, fake)
+    # registry の Patch は noop でも dry_run のあとに検査する（問題は増えないので PASS）
+    assert _order_check(rec)["status"] == "PASS"

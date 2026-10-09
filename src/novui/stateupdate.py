@@ -19,12 +19,13 @@ from novui.approvals import (
     is_approval_used,
     reserve_approval_id,
 )
-from novui.chapters import ChapterError, ensure_main_ready
+from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order
 from novui.checks import CheckResult, check_allowed_paths
 from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeCallOutcome, ClaudeRunner, claude_version, run_claude_call
 from novui.config import Settings
 from novui.draftjob import read_plan
+from novui.foreshadowcheck import check_new_order_issues
 from novui.gitinspect import get_changes, run_git
 from novui.ids import next_job_id
 from novui.jobrecord import apply_transition, load_job_record, new_job_record, save_job_record
@@ -41,6 +42,7 @@ from novui.prompt import build_claude_prompt, load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
 from novui.semantics import check_chapter
 from novui.statecheck import (
+    REGISTRY_TARGET,
     check_patch_policy,
     check_patch_target,
     check_summary_patch_consistency,
@@ -63,7 +65,7 @@ from novui.validatejob import (
 )
 from novui.workrepo import commit_all, head_commit, parse_trailers
 from novui.works import WorkInfo
-from novui.yamlio import dumps_yaml, load_yaml, write_yaml_atomic
+from novui.yamlio import YamlError, dumps_yaml, load_yaml, write_yaml_atomic
 
 STATE_UPDATE_JOB_TYPE = "state_update"
 AWAITING_REASON = "awaiting approval of state update proposal"
@@ -297,6 +299,18 @@ def run_state_update(
             ok = ok and add_check(dry_run_patch(doc_before, patch))
             if not ok:
                 return fail(f"patch checks failed for {target}")
+
+            # 伏線の順序：Patch で新しく生じた問題だけを WARNING にする（phase2d-design 決定 4、§9）
+            if target == REGISTRY_TARGET:
+                try:
+                    order = read_chapters_order(worktree)
+                except (ChapterError, SchemaError, YamlError) as exc:
+                    add_check(CheckResult(
+                        name="foreshadow_order", status="WARNING",
+                        details=(f"chapters-order.yaml could not be read: {exc}",),
+                    ))
+                else:
+                    add_check(check_new_order_issues(order, doc_before, apply_patch(doc_before, patch)))
 
             if is_noop_patch(patch):
                 add_check(CheckResult(name="patch_noop", status="PASS", details=(target,)))

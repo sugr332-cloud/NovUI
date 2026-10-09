@@ -838,7 +838,7 @@ def test_validate_prompt_tables_hash(tmp_path: Path) -> None:
     text = _rules_text(fake.calls[0]["prompt"])
     chk = _checks(rec)["prompt_tables"]
     assert chk["status"] == "PASS"
-    assert chk["details"] == [f"character_rules {sha256_bytes(text.encode('utf-8'))}"]
+    assert chk["details"][0] == f"character_rules {sha256_bytes(text.encode('utf-8'))}"
 
 
 def test_validate_character_rules_warning_waits_for_human(tmp_path: Path) -> None:
@@ -880,3 +880,86 @@ def test_validate_character_finding_outside_character_is_semantic_error(tmp_path
     assert fake.kinds() == ["integrity_review", "integrity_review", "writing_review"]
     assert rec["state"] == "WAITING_HUMAN"
     assert "semantic" in _checks(rec)["claude_integrity_review"]["details"][0]
+
+
+# --- 2-D3：伏線の機械検査と状況表（phase2d-design §5） ---
+
+FORESHADOW_CHECKS = ["foreshadow_positions", "foreshadow_order", "foreshadow_overdue", "foreshadow_plan_refs"]
+
+
+def _drafted_with_registry(tmp_path: Path, reg: list[dict[str, Any]] | None) -> tuple[Settings, WorkInfo]:
+    settings, work = setup_work(tmp_path)
+    repo = work.path
+    path = repo / "foreshadowing" / "registry.yaml"
+    if reg is None:
+        path.unlink()
+    else:
+        path.write_text(dumps_yaml(reg), encoding="utf-8")
+    commit_all(repo, "edit registry", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    rec = run_chapter_draft_job(settings, work, CH, container_runner=_agy_runner(GOOD_TEXT))
+    assert rec["state"] == "COMPLETED"
+    return settings, work
+
+
+def _f001(**kw: Any) -> dict[str, Any]:
+    item = {
+        "id": "F001", "name": "王家の紋章", "status": "planned", "importance": "major",
+        "introduced": [], "hints": [], "developments": [],
+        "planned_resolution": None, "resolved": None, "notes": "",
+    }
+    item.update(kw)
+    return item
+
+
+def _status_text(prompt: str) -> str:
+    return prompt.split("伏線の状況（", 1)[1].split("```yaml\n", 1)[1].split("\n```", 1)[0]
+
+
+def test_validate_foreshadow_checks_in_mechanical_and_status_in_prompt(tmp_path: Path) -> None:
+    settings, work, _ = drafted(tmp_path)
+    fake = ok_claude()
+    rec = run_validate_job(settings, work, CH, claude_runner=fake)
+    assert rec["state"] == "COMPLETED"
+    review = _branch_yaml(work.path, "chapters/ch-001/review.yaml")
+    names = [c["name"] for c in review["mechanical"]]
+    assert names[-5:] == ["character_rules"] + FORESHADOW_CHECKS
+    rows = loads_yaml(_status_text(fake.calls[0]["prompt"]))
+    assert [r["id"] for r in rows] == ["F001"]
+    assert rows[0]["scenes_in_this_chapter"] == ["S1"]
+    assert "伏線の状況" not in fake.calls[1]["prompt"]
+
+
+def test_validate_foreshadow_order_warning_waits_for_human(tmp_path: Path) -> None:
+    reg = [_f001(status="active", introduced=[{"chapter": CH, "scene": "S2"}], hints=[{"chapter": CH, "scene": "S1"}])]
+    settings, work = _drafted_with_registry(tmp_path, reg)
+    rec = run_validate_job(settings, work, CH, claude_runner=ok_claude())
+    assert rec["state"] == "WAITING_HUMAN"
+    assert "foreshadow_order" in rec["history"][-1]["reason"]
+    review = _branch_yaml(work.path, "chapters/ch-001/review.yaml")
+    chk = {c["name"]: c for c in review["mechanical"]}["foreshadow_order"]
+    assert chk["status"] == "WARNING"
+    assert chk["details"] == [f"F001 hints[0] {CH} S1 is before introduced {CH} S2"]
+
+
+def test_validate_without_registry(tmp_path: Path) -> None:
+    settings, work = _drafted_with_registry(tmp_path, None)
+    fake = ok_claude()
+    rec = run_validate_job(settings, work, CH, claude_runner=fake)
+    review = _branch_yaml(work.path, "chapters/ch-001/review.yaml")
+    names = [c["name"] for c in review["mechanical"]]
+    assert not set(FORESHADOW_CHECKS) & set(names)
+    assert _status_text(fake.calls[0]["prompt"]) == "なし"
+    assert rec["state"] == "WAITING_HUMAN"  # plan の F001 が registry にない（既存の ref_ids の WARNING）
+
+
+def test_validate_prompt_tables_has_two_hashes(tmp_path: Path) -> None:
+    settings, work, _ = drafted(tmp_path)
+    fake = ok_claude()
+    rec = run_validate_job(settings, work, CH, claude_runner=fake)
+    prompt = fake.calls[0]["prompt"]
+    rules = _rules_text(prompt).encode("utf-8")
+    status = _status_text(prompt).encode("utf-8")
+    assert _checks(rec)["prompt_tables"]["details"] == [
+        f"character_rules {sha256_bytes(rules)}",
+        f"foreshadow_status {sha256_bytes(status)}",
+    ]

@@ -17,6 +17,12 @@ from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeCallOutcome, ClaudeRunner, claude_version, run_claude_call
 from novui.config import Settings
 from novui.draftjob import read_plan
+from novui.foreshadowcheck import (
+    foreshadow_status_rows,
+    load_registry,
+    render_foreshadow_status,
+    run_foreshadow_checks,
+)
 from novui.gitinspect import GitError, get_changes, run_git
 from novui.ids import next_job_id
 from novui.jobrecord import apply_transition, load_job_record, new_job_record, now_iso, save_job_record
@@ -291,8 +297,11 @@ def run_validate_job(
         order = read_chapters_order(worktree)
         rule_tables = scene_rule_tables(order, chapter_id, plan, inputs.characters)
         mech.append(check_character_rules(rule_tables))
+        registry = load_registry(worktree)
+        mech += run_foreshadow_checks(order, registry, plan, chapter_id)
         mechanical = [_check_dict(c) for c in mech]
         character_rules = render_rule_tables(rule_tables)
+        foreshadow_status = render_foreshadow_status(foreshadow_status_rows(order, registry, plan, chapter_id))
 
         # 3. Claude（AGY に渡したのと同じ版の Context と本文）
         ctx_paths = [e["path"] for e in draft["context"]]
@@ -343,10 +352,13 @@ def run_validate_job(
         record["checks"].append({
             "name": "prompt_tables",
             "status": "PASS",
-            "details": [f"character_rules {sha256_bytes(character_rules.encode('utf-8'))}"],
+            "details": [
+                f"character_rules {sha256_bytes(character_rules.encode('utf-8'))}",
+                f"foreshadow_status {sha256_bytes(foreshadow_status.encode('utf-8'))}",
+            ],
         })
         save_job_record(jdir, record)
-        integ = call("integrity_review", character_rules=character_rules)
+        integ = call("integrity_review", character_rules=character_rules, foreshadow_status=foreshadow_status)
         writ: ClaudeCallOutcome | None = None
         if integ.data is not None:
             writ = call("writing_review")
