@@ -16,3 +16,5 @@
 * scenes：場面の構成。id は S1 から順に連番。各場面に、summary（何が起きるか）、actions（主な行動）、characters（登場人物の ID）、settings_used（使う設定の要素。資料にある語で）、foreshadowing（扱う伏線の ID。なければ空）を書く。
 * prohibitions：この章で書いてはいけないこと（まだ明かさない情報、使わない表現など）。
 * connection：from_previous（前の章からのつながり。最初の章なら「冒頭」）、to_next（次の章へのつながり）。
+
+{{format_notes}}

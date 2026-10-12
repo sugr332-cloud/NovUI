@@ -21,6 +21,8 @@
 * plan_compliance：plan の scenes（順序・内容・登場人物）、pov、style_notes、prohibitions、connection に従っているか。
 * undefined_setting：資料にない設定（人物、地名、組織、出来事、能力、物の名前、時系列）を、本文が新しく決めていないか。
 
+{{format_notes}}
+
 場面ごとの人物の規則（Controller が計算した表。場面 ID ごとに、その場面の登場人物の規則）：
 
 ```yaml
