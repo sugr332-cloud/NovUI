@@ -442,3 +442,115 @@ def test_character_rules_text_without_characters(tmp_path: Path) -> None:
     assert build_character_rules_text(repo, "ch-001", plan, load_mechanical_inputs(repo)) == "なし"
     text = build_draft_instruction("ch-001", plan, character_rules="なし")
     assert "```yaml\nなし\n```" in text
+
+
+# --- 2-E2：台本の形式の作品（phase2e-design §1・§4、決定 1） ---
+
+from novui.draftjob import extras_text, prepare_draft, scene_flow_text  # noqa: E402
+
+
+def script_plan() -> dict[str, Any]:
+    plan = make_plan()
+    plan["scenes"][0].update({"background": "bg_market_day", "extras": ["門番"],
+                              "choice": [{"text": "門を通る", "goto": "S2", "flag": "passed_gate"},
+                                         {"text": "引き返す", "goto": "S2"}]})
+    plan["scenes"][1].update({"background": "bg_gate_evening"})
+    return plan
+
+
+SCRIPT_TEXT = (
+    "<!-- scene: S1 -->\n@bg bg_market_day\n@enter C001 center neutral\n"
+    "カイは港町ミナトに着いた。門番が紋章に目を留めた。\n門番「止まれ」\n"
+    "@choice\n- 門を通る -> S2 +passed_gate\n- 引き返す -> S2\n"
+    "<!-- scene: S2 -->\n@bg bg_gate_evening\n@enter C001 center\nカイ「わけが分からない」\n"
+)
+
+
+def setup_script_work(tmp_path: Path, *, display_name: bool = True) -> tuple[Settings, WorkInfo]:
+    settings, work = setup_work(tmp_path, script_plan())
+    repo = work.path
+    project = load_yaml(repo / "project.yaml")
+    project["text_format"] = "script"
+    (repo / "project.yaml").write_text(dumps_yaml(project), encoding="utf-8")
+    c1 = load_yaml(repo / "characters" / "C001.yaml")
+    if display_name:
+        c1.update({"display_name": "カイ", "expressions": ["neutral", "happy"]})
+    (repo / "characters" / "C001.yaml").write_text(dumps_yaml(c1), encoding="utf-8")
+    commit_all(repo, "script work", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    return settings, work
+
+
+def test_scene_flow_and_extras_text() -> None:
+    plan = script_plan()
+    assert scene_flow_text(plan) == (
+        "S1（背景 bg_market_day） → 選択肢：門を通る → S2（フラグ passed_gate）／引き返す → S2\n"
+        "S2（背景 bg_gate_evening） → 章の終わり"
+    )
+    assert extras_text(plan) == "S1：門番"
+    plain = make_plan()
+    plain["scenes"][0]["next"] = "S2"
+    plain["scenes"].append({**plain["scenes"][1], "id": "S3"})
+    assert scene_flow_text(plain) == "S1 → @goto S2\nS2 → S3（@goto は書かない）\nS3 → 章の終わり"
+    assert extras_text(plain) == "なし"
+
+
+def test_script_draft_uses_script_instruction(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path)
+    runner = FakeRunner(SCRIPT_TEXT)
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=runner)
+    assert record["state"] == "COMPLETED", record["checks"]
+    prompt = runner.prompt
+    assert "ノベルゲームの台本の形式で書いてください" in prompt
+    assert "S1（背景 bg_market_day） → 選択肢：門を通る → S2（フラグ passed_gate）" in prompt
+    assert "S1：門番" in prompt
+    assert "display_name: カイ" in prompt
+    assert "{{" not in prompt
+    checks = _checks(record)
+    assert checks["char_count"]["status"] == "PASS"
+    assert checks["script_syntax"]["status"] == "PASS" and checks["script_flow"]["status"] == "PASS"
+
+
+def test_script_draft_syntax_error_fails(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path)
+    bad = SCRIPT_TEXT.replace("@enter C001 center neutral", "@enter C001 top neutral")
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=FakeRunner(bad))
+    assert record["state"] == "FAILED"
+    assert _checks(record)["script_syntax"]["status"] == "FAIL"
+
+
+def test_script_draft_flow_error_fails(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path)
+    bad = SCRIPT_TEXT.replace("- 引き返す -> S2\n", "- 戻る -> S2\n")
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=FakeRunner(bad))
+    assert record["state"] == "FAILED"
+    assert _checks(record)["script_flow"]["status"] == "FAIL"
+
+
+def test_script_draft_warnings_do_not_fail(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path)
+    text = SCRIPT_TEXT.replace("カイ「わけが分からない」", "カイ［angry］「僕には分からない」")
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=FakeRunner(text))
+    assert record["state"] == "COMPLETED"
+    assert _checks(record)["script_expressions"]["status"] == "WARNING"
+    assert _checks(record)["script_speaker_words"]["status"] == "WARNING"
+
+
+def test_script_char_count_ignores_commands(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path)
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=FakeRunner(SCRIPT_TEXT))
+    count = int(_checks(record)["char_count"]["details"][0].split()[0].removeprefix("count="))
+    assert count == len("カイは港町ミナトに着いた。門番が紋章に目を留めた。止まれわけが分からない")
+
+
+def test_script_draft_requires_display_names(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path, display_name=False)
+    with pytest.raises(ChapterError, match="display_name"):
+        run_chapter_draft_job(settings, work, "ch-001", container_runner=FakeRunner(SCRIPT_TEXT))
+    assert not jobs_dir(settings, work.work_key).exists() or not list(jobs_dir(settings, work.work_key).glob("*.yaml"))
+
+
+def test_novel_work_unchanged(tmp_path: Path) -> None:
+    settings, work = setup_work(tmp_path)
+    spec = prepare_draft(work.path, "ch-001", make_plan())
+    assert spec.target_chars == (10, 200)
+    assert spec.instruction.startswith("章 ch-001 の本文を書いてください。")

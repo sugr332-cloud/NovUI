@@ -338,14 +338,19 @@ def test_plan_flow_spec_example_ok() -> None:
     (({"id": "S1", "next": "S1"}, {"id": "S2"}), "not a later scene"),
     (({"id": "S1", "next": "S9"}, {"id": "S2"}), "not in the plan"),
     (({"id": "S1"}, {"id": "S2", "next": "S3"}), "not in the plan"),
-    (({"id": "S1", "choice": [{"text": "a", "goto": "S2"}, {"text": "b", "goto": "S2"}]}, {"id": "S2"}),
-     "duplicate choice targets"),
     (({"id": "S1", "next": "S3"}, {"id": "S2"}, {"id": "S3"}), "S2 is not reachable"),
     (({"id": "S1", "extras": ["門番", "門番"]},), "duplicate extras"),
 ])
 def test_plan_flow_errors(scenes: tuple, message: str) -> None:
     errs = check_plan(_flow_plan(*scenes))
     assert any(message in e for e in errs), errs
+
+
+def test_plan_choices_may_share_a_target() -> None:
+    # 選んだ選択肢でフラグだけが変わり、同じ場面に進む（phase2e-design §9）
+    doc = _flow_plan({"id": "S1", "choice": [{"text": "a", "goto": "S2", "flag": "f"}, {"text": "b", "goto": "S2"}]},
+                     {"id": "S2"})
+    assert check_plan(doc) == []
 
 
 def test_plan_last_scene_next() -> None:

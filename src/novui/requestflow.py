@@ -17,9 +17,8 @@ from novui.config import Settings
 from novui.draftjob import (
     DRAFT_MODEL_ROLE,
     _mark_drafted_on_branch,
-    build_character_rules_text,
-    build_draft_instruction,
     collect_draft_context,
+    prepare_draft,
     read_plan,
 )
 from novui.finalize import CycleInfo, cycle_info, remove_cycle
@@ -28,7 +27,6 @@ from novui.ids import next_job_id
 from novui.jobrecord import apply_transition, new_job_record, now_iso, save_job_record
 from novui.jobrunner import ContainerRunner, DraftJobRequest, jobs_dir, run_draft_job
 from novui.locks import RunLock
-from novui.mechanical import load_mechanical_inputs, run_draft_mechanical_checks
 from novui.models import ModelUnavailable, resolve_model
 from novui.schema import validate_or_raise
 from novui.semantics import check_requests
@@ -224,14 +222,8 @@ def redraft(
         raise ChapterError(f"Chapter {chapter_id!r} must be PLAN_APPROVED on main to redraft, got: {cur}")
     plan = read_plan(repo, chapter_id)
     ctx_paths = tuple(collect_draft_context(repo, chapter_id, plan))
-    inputs = load_mechanical_inputs(repo)
-    instruction = (
-        build_draft_instruction(
-            chapter_id, plan, character_rules=build_character_rules_text(repo, chapter_id, plan, inputs)
-        )
-        + "\n\n"
-        + build_decision_section(requests)
-    )
+    spec = prepare_draft(repo, chapter_id, plan)
+    instruction = spec.instruction + "\n\n" + build_decision_section(requests)
     try:
         model = resolve_model(settings, DRAFT_MODEL_ROLE, work_key=work.work_key)
     except ModelUnavailable as exc:
@@ -263,9 +255,9 @@ def redraft(
         model=model,
         context_paths=ctx_paths,
         instruction=instruction,
-        target_chars=(plan["target_chars"]["min"], plan["target_chars"]["max"]),
+        target_chars=spec.target_chars,
         needs_validation=False,
-        extra_checks=lambda text: run_draft_mechanical_checks(text, plan, inputs),
+        extra_checks=spec.extra_checks,
     )
     record = run_draft_job(
         settings,

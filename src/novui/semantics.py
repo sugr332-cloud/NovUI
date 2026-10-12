@@ -74,8 +74,6 @@ def _check_plan_flow(scenes: list[Any]) -> list[str]:
         if s.get("next") and i == len(scenes) - 1:
             errors.append(f"Scene {sid} is the last scene and must not have next")
         targets = [c.get("goto") for c in choice] if choice else ([s["next"]] if s.get("next") else [])
-        if choice and len(set(targets)) != len(targets):
-            errors.append(f"Scene {sid} has duplicate choice targets")
         for t in targets:
             if t not in index:
                 errors.append(f"Scene {sid} goes to {t} which is not in the plan")

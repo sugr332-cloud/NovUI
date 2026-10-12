@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from novui.chapters import (
     ChapterError,
@@ -12,6 +13,7 @@ from novui.chapters import (
     read_chapters_order,
 )
 from novui.charrules import render_rule_tables, scene_rule_tables
+from novui.checks import CheckResult
 from novui.config import Settings
 from novui.container import run_container
 from novui.ids import next_job_id
@@ -23,8 +25,11 @@ from novui.models import ModelUnavailable, resolve_model
 from novui.paths import PathError, ensure_within, is_safe_relpath
 from novui.prompt import load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
+from novui.scriptcheck import load_script_inputs, run_script_checks, script_char_count
 from novui.semantics import check_chapter, check_plan
+from novui.semantics import plan_scene_successors
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
+from novui.textformat import read_text_format
 from novui.workrepo import commit_all
 from novui.works import WorkInfo
 from novui.yamlio import load_yaml, write_yaml_atomic
@@ -129,6 +134,92 @@ def build_draft_instruction(chapter_id: str, plan: dict[str, Any], *, character_
     ).rstrip("\n")
 
 
+def scene_flow_text(plan: Mapping[str, Any]) -> str:
+    """{{scene_flow}} of draft_script.md: one line per scene with its background and how it continues."""
+    scenes = plan["scenes"]
+    succ = plan_scene_successors(list(scenes))
+    lines: list[str] = []
+    for s in scenes:
+        head = s["id"] + (f"（背景 {s['background']}）" if s.get("background") else "")
+        if s.get("choice"):
+            opts = "／".join(
+                f"{c['text']} → {c['goto']}" + (f"（フラグ {c['flag']}）" if c.get("flag") else "") for c in s["choice"]
+            )
+            lines.append(f"{head} → 選択肢：{opts}")
+        elif s.get("next"):
+            lines.append(f"{head} → @goto {s['next']}")
+        elif succ[s["id"]]:
+            lines.append(f"{head} → {succ[s['id']][0]}（@goto は書かない）")
+        else:
+            lines.append(f"{head} → 章の終わり")
+    return "\n".join(lines)
+
+
+def extras_text(plan: Mapping[str, Any]) -> str:
+    """{{extras}} of draft_script.md: the extras of each scene, or 'なし'."""
+    lines = [f"{s['id']}：{'、'.join(s['extras'])}" for s in plan["scenes"] if s.get("extras")]
+    return "\n".join(lines) if lines else "なし"
+
+
+def build_script_draft_instruction(chapter_id: str, plan: dict[str, Any], *, character_rules: str) -> str:
+    """Build AGY instruction text for a script-format work from prompts/agy/draft_script.md."""
+    scene_ids = [s["id"] for s in plan["scenes"]]
+    return load_prompt_template(
+        "draft_script",
+        group="agy",
+        chapter_id=chapter_id,
+        scene_ids="、".join(scene_ids),
+        scene_count=str(len(scene_ids)),
+        scene_flow=scene_flow_text(plan),
+        extras=extras_text(plan),
+        min_chars=str(plan["target_chars"]["min"]),
+        max_chars=str(plan["target_chars"]["max"]),
+        character_rules=character_rules,
+    ).rstrip("\n")
+
+
+@dataclass(frozen=True)
+class DraftSpec:
+    """What a draft Job needs besides the context: the instruction and the checks (novel or script)."""
+
+    instruction: str
+    target_chars: tuple[int, int] | None
+    extra_checks: Callable[[str], Sequence[CheckResult]]
+
+
+def prepare_draft(root: Path, chapter_id: str, plan: dict[str, Any]) -> DraftSpec:
+    """Instruction and checks of a draft Job for the work's text format (phase2e-design decision 1).
+
+    Script works: every character of the plan's scenes needs a display_name (ChapterError otherwise), the
+    character count is taken from the script text, and script_syntax / script_flow FAIL the Job.
+    """
+    inputs = load_mechanical_inputs(root)
+    rules = build_character_rules_text(root, chapter_id, plan, inputs)
+    min_c, max_c = plan["target_chars"]["min"], plan["target_chars"]["max"]
+    if read_text_format(root) != "script":
+        return DraftSpec(
+            instruction=build_draft_instruction(chapter_id, plan, character_rules=rules),
+            target_chars=(min_c, max_c),
+            extra_checks=lambda text: run_draft_mechanical_checks(text, plan, inputs),
+        )
+    missing = sorted({
+        cid for s in plan["scenes"] for cid in s["characters"]
+        if cid in inputs.characters and not inputs.characters[cid].get("display_name")
+    })
+    if missing:
+        raise ChapterError(f"characters without display_name in a script work: {missing}")
+    script_inputs = load_script_inputs(root, inputs.characters)
+    return DraftSpec(
+        instruction=build_script_draft_instruction(chapter_id, plan, character_rules=rules),
+        target_chars=None,
+        extra_checks=lambda text: (
+            [script_char_count(text, min_c, max_c)]
+            + run_draft_mechanical_checks(text, plan, inputs)
+            + run_script_checks(text, plan, script_inputs, for_draft=True)
+        ),
+    )
+
+
 def _mark_drafted_on_branch(settings: Settings, worktree: Path, chapter_id: str, job_id: str) -> str:
     """Write chapter.yaml DRAFTED on the job branch and commit with NovUI-Job (phase2-plan §2)."""
     meta = read_chapter_meta(worktree, chapter_id)
@@ -186,10 +277,7 @@ def run_chapter_draft_job(
 
     plan = read_plan(repo, chapter_id)
     ctx_paths = tuple(collect_draft_context(repo, chapter_id, plan))
-    inputs = load_mechanical_inputs(repo)
-    instruction = build_draft_instruction(
-        chapter_id, plan, character_rules=build_character_rules_text(repo, chapter_id, plan, inputs)
-    )
+    spec = prepare_draft(repo, chapter_id, plan)
 
     actual_job_id = job_id or next_job_id(settings, work.work_key)
 
@@ -211,10 +299,10 @@ def run_chapter_draft_job(
         job_id=actual_job_id,
         model=model,
         context_paths=ctx_paths,
-        instruction=instruction,
-        target_chars=(plan["target_chars"]["min"], plan["target_chars"]["max"]),
+        instruction=spec.instruction,
+        target_chars=spec.target_chars,
         needs_validation=False,
-        extra_checks=lambda text: run_draft_mechanical_checks(text, plan, inputs),
+        extra_checks=spec.extra_checks,
     )
     record = run_draft_job(
         settings,
