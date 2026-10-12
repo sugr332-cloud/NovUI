@@ -84,6 +84,9 @@ def _check_plan_flow(scenes: list[Any]) -> list[str]:
         extras = s.get("extras", [])
         if len(set(extras)) != len(extras):
             errors.append(f"Scene {sid} has duplicate extras")
+    engine_ids = [s["engine_id"] for s in scenes if s.get("engine_id")]
+    for eid in sorted({e for e in engine_ids if engine_ids.count(e) > 1}):
+        errors.append(f"Duplicate scene engine_id: {eid}")
     if errors:
         return errors
     succ = plan_scene_successors(scenes)

@@ -372,3 +372,8 @@ def test_check_flags() -> None:
 def test_check_character_duplicate_expressions() -> None:
     assert check_character({"id": "C001", "name": "a", "expressions": ["通常", "通常"]}) == ["Duplicate expressions"]
     assert check_character({"id": "C001", "name": "a", "expressions": ["通常", "笑顔"]}) == []
+
+
+def test_plan_duplicate_scene_engine_id() -> None:
+    doc = _flow_plan({"id": "S1", "engine_id": "scene_a"}, {"id": "S2", "engine_id": "scene_a"}, {"id": "S3"})
+    assert check_plan(doc) == ["Duplicate scene engine_id: scene_a"]

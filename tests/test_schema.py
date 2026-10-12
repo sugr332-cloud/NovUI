@@ -422,3 +422,18 @@ def test_backgrounds_and_script_rules_schema() -> None:
     assert validate({}, "script_rules") == []
     assert validate({"max_line_chars": 0}, "script_rules") != []
     assert validate({"other": 1}, "script_rules") != []
+
+
+# --- 2-E1 追補：engine_id・title（phase2e-design §10.3） ---
+
+@pytest.mark.parametrize("eid,ok", [("kiyoshi", True), ("father_ex_member", True), ("Kiyoshi", False), ("1abc", False), ("a-b", False)])
+def test_character_engine_id(eid: str, ok: bool) -> None:
+    assert (validate({"id": "C001", "name": "a", "engine_id": eid}, "character") == []) is ok
+
+
+@pytest.mark.parametrize("extra,ok", [
+    ({"engine_id": "scene_00_prologue"}, True), ({"engine_id": "Scene-1"}, False),
+    ({"title": "否定の流儀"}, True), ({"title": ""}, False),
+])
+def test_plan_scene_engine_id_and_title(extra: dict, ok: bool) -> None:
+    assert (validate(_plan_with(**extra), "plan") == []) is ok

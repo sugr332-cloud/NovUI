@@ -176,3 +176,18 @@ def test_empty_text() -> None:
 def test_body_text() -> None:
     p = parse_script("<!-- scene: S1 -->\n@bg 市場\n@enter C001 left 通常\nカイ［驚き］「やあ」\nカイ（ふむ）\n地の文。\n@choice\n- a -> S2\n- b -> S2\n")
     assert body_text(p) == "やあ\nふむ\n地の文。"
+
+
+# --- 2-E1 追補：背景は場面に1つ（phase2e-design §10） ---
+
+def test_bg_must_be_first_and_once() -> None:
+    assert _errors("<!-- scene: S1 -->\n@bg a\nカイ「x」\n") == []
+    assert _errors("<!-- scene: S1 -->\nカイ「x」\n@bg a\n") == [(3, "@bg must be the first line of the scene")]
+    assert _errors("<!-- scene: S1 -->\n@bg a\n@bg b\n") == [(3, "only one @bg per scene")]
+    # 場面ごとに数え直す
+    assert _errors("<!-- scene: S1 -->\n@bg a\n<!-- scene: S2 -->\n@bg b\n") == []
+
+
+def test_bg_inside_if_is_still_an_error() -> None:
+    errs = _errors("<!-- scene: S1 -->\n@bg a\n@if f\n@bg b\n@endif\n")
+    assert errs == [(4, "@bg is not allowed inside @if")]

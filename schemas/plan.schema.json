@@ -65,6 +65,8 @@
             "items": { "$ref": "common.schema.json#/$defs/foreshadow_id" }
           },
           "background": { "type": "string", "pattern": "^\\S+$" },
+          "engine_id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "title": { "$ref": "common.schema.json#/$defs/nonempty_string" },
           "extras": {
             "type": "array",
             "uniqueItems": true,

@@ -92,6 +92,7 @@ class _SceneState:
     closed_by: str | None = None  # "choice" or "goto"
     if_line: int | None = None
     seen_else: bool = False
+    bg_count: int = 0
 
 
 def _close_scene(state: _SceneState, errors: list[ScriptError]) -> SceneBlock:
@@ -105,6 +106,13 @@ def _close_scene(state: _SceneState, errors: list[ScriptError]) -> SceneBlock:
 def _structure_error(state: _SceneState, ln: ScriptLine) -> str | None:
     """Structural error of ln in the scene, or None. Updates state."""
     kind = ln.kind
+    if kind == "bg" and state.if_line is None:
+        # 背景は場面に1つ（script-format §3、phase2e-design §10）。@if の中の @bg は下の @if の規則で報告する
+        state.bg_count += 1
+        if state.bg_count > 1:
+            return "only one @bg per scene"
+        if state.lines:
+            return "@bg must be the first line of the scene"
     if state.closed_by == "goto":
         return "no line may follow @goto in the scene"
     if state.closed_by == "choice":
