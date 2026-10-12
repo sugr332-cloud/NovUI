@@ -2,7 +2,7 @@
 
 **作成：2026-10-09 / 基準：docs/novel-system-spec-v0.5.2.md §6.4・§6.5・§11.3・§11.7・§12・§16、docs/phase2/phase2d-design.md**
 **対象コード：origin/phase2/chapter-flow 10ca06b（2-D4 完了）**
-**段階：2-E0（設計）。この文書はコードを含まない。【決定】1〜6 は 2026-10-09 に Human が決めた（§8）。**
+**段階：2-E0（設計）。この文書はコードを含まない。【決定】1〜6 は 2026-10-09 に Human が決めた（§8）。2026-10-12 にエンジンを確認し、決定 6 と背景の扱いを決め直した（§10）。**
 
 この文書は「なぜそうするか」の記録である。実装の指示書は、Human の決定のあとに `docs/phase2/agy-instruction-2e.md` として作る。
 
@@ -208,3 +208,41 @@ Human の決定（2026-10-09）：分岐の中で呼び方・伏線・知識が�
 * `flags/registry.yaml` の各フラグは `name`・`description`・`notes`。立てる位置は plan の choice から分かるので登録しない。flags/ は保護対象に加える（AI が書き換えない）。
 * 台詞の長さ（決定 5）は、writing_review ではなく**機械検査** `script_line_length` で見る（字数を数えるだけなので、Claude に頼むより確実）。上限は `rules/script.yaml` の `max_line_chars`（無ければ見ない）。
 * 文字数（target_chars）は、台詞・心の声・地の文の本文だけを数える。draft Job では jobrunner の文字数の検査を使わず（target_chars を渡さない）、台本の本文で数えた `char_count` を extra_checks で出す。
+
+---
+
+## 10. エンジンの確認と決め直し（2026-10-12）
+
+### 10.1 エンジン（https://github.com/cruway/novel_game 73a0a49）で分かったこと
+
+* Flutter 製。台本は**場面ごとの YAML**（`assets/scripts/<ルート>/<chapter_NN>/<場面 ID>.yaml`）と、章の `_meta.yaml`（場面の並び）。Markdown は読まない。
+* `script_parser.dart` は3つの形式を読む。今回の機能を一番多く持つのは `dialogues` 形式（第1章）：台詞 `{speaker, text, emotion}`、`type: narration`・`thought`、台詞の行の `characters: {add, remove}`（立ち位置・表情つき）、`choices: [{text, next_scene, set_flag, sanity_change}]`、場面の `background`・`bgm`・`characters.initial`・`next_scene`。
+* 人物 ID と表情は英語（`kiyoshi`、`neutral`・`thinking`）。話者の表示名はエンジンが ID から引く。
+* フラグは選択肢で立て、**選択肢の表示条件**（`condition: f`／`!f`）でだけ使う。台詞の表示条件は無い。
+* 背景は場面に1つ（場面の途中で変える書き方は無い）。
+* NovUI に無い仕組み：侵食度（`sanity_change`）、オカルト値によるルート（common・order・chaos）、視点ごとの台詞（`text_science`・`text_occult`）。
+* エンジンの説明（`.context/scenario.md`）と実際のファイルの形は一致していない。NovUI は `script_parser.dart` の実装を正とする。
+
+### 10.2 Human の決定（2026-10-12）
+
+| # | 内容 | 決定 |
+|---|---|---|
+| 6（改） | 台本とエンジンのつなぎ方 | NovUI は行形式で書き・検査する。最終承認した章を、エンジンの `dialogues` 形式の YAML に**書き出す**（決定 6「draft.md をそのまま読む」を取り消す） |
+| 7 | 台詞をフラグで書き分ける `@if` | 残す。**エンジンに台詞の表示条件 `condition` を足す**（選択肢の condition と同じ形 `f`／`!f`） |
+| 8 | 場面の途中の背景の変更 | しない。背景は場面に1つ（`@bg` は場面の最初の行に1回だけ） |
+| 9 | 侵食度・ルート・視点ごとの台詞 | 2-E の後で設計する |
+
+### 10.3 NovUI 側の変更
+
+* 人物に `engine_id`（`^[a-z][a-z0-9_]*$`。例 `kiyoshi`）を足す。書き出しには必須（無い人物がいれば書き出しを止める）。
+* 表情（`expressions`）はエンジンの表情の名前にする（例 `[neutral, thinking, serious]`）。先頭が既定の表情。
+* plan の場面に任意の `engine_id`（`^[a-z0-9_]+$`、場面ファイルの名前）と `title`（エンジンの `scene.title`。無ければ summary）を足す。
+* 解析器：`@bg` が場面の最初の行でない、2回ある場合を構造の誤りにする。
+* 書き出しのコマンド `novui export`（2-E5）。対応は docs/script-format.md §6。
+* 段階：2-E5 を書き出し、2-E6 を結合試験にする。
+
+### 10.4 エンジン側に必要な変更（cruway/novel_game。NovUI では作らない）
+
+1. `_parseDialogues` で台詞の行の `condition`（`f`／`!f`）を読み、条件に合わない行を飛ばす。
+2. `_parseDialogues` で `characters.update`（`[{id, emotion, position?}]`）を読む（`ParsedCharacterChange` の action `update` は定義済みで、読み込みだけが無い）。
+3. 登録の無い話者 ID（端役）の名前を、ID の文字列のまま表示する（`l10n.getCharacterName` の既定の動作を確かめる）。

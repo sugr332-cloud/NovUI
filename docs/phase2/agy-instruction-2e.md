@@ -1,7 +1,8 @@
-# AGYへの作業指示：Phase 2-E ノベルゲームの台本形式（2-E1〜2-E5）
+# AGYへの作業指示：Phase 2-E ノベルゲームの台本形式（2-E1〜2-E6）
 
 **この指示書は 2-E1〜2-E5 の全体を定める。実際の作業は、Human が段階ごとに「○○を実施せよ」と指示したときに、その段階だけを行う。指示された段階以外のコードを先取りして書いてはならない。**
-**フラグに結び付いた設定（2-F）は範囲外。**
+**フラグに結び付いた設定（2-F）、侵食度・ルート・視点ごとの台詞は範囲外。**
+**2026-10-12 改訂：エンジンの確認（phase2e-design §10）を受けて、2-E1 追補と 2-E5（書き出し）を足し、結合試験を 2-E6 にした。**
 
 ## あなたの役割
 
@@ -43,7 +44,15 @@
   src/novui/scriptcheck.py（分岐とフラグの検査の追加）
   src/novui/statecheck.py・stateupdate.py（分岐の中の場面の変化の WARNING だけ）
 
+2-E1 追補：
+  schemas/character.schema.json・plan.schema.json（engine_id・title の追加だけ）
+  src/novui/script.py（@bg の規則の追加だけ）
+
 2-E5：
+  src/novui/ の新規：export.py
+  src/novui/cli.py（export サブコマンドの追加だけ）
+
+2-E6：
   tests/integration/test_script_integration.py（新規）
 
 禁止：上記以外すべて（docs/、prompts/、既存の schemas の上記以外の変更、jobrunner.py、mechanical.py など）。
@@ -149,6 +158,17 @@ def body_text(parsed: ParsedScript) -> str
 
 ---
 
+# 2-E1 追補：エンジンに合わせた変更（phase2e-design §10.3）
+
+* `character.schema.json`：任意の `engine_id`（`^[a-z][a-z0-9_]*$`）。
+* `plan.schema.json` の scene：任意の `engine_id`（`^[a-z0-9_]+$`）と `title`（nonempty_string）。`check_plan`：場面の engine_id の重複なし。
+* `script.parse_script`：`@bg` が場面の最初の行でない（`"@bg must be the first line of the scene"`）、場面に2回目の `@bg`（`"only one @bg per scene"`）を構造の誤りにする。
+* テスト：schema の正例と負例、engine_id の重複、`@bg` の2つの誤り、docs/script-format.md §5 の例が誤りなしで読めること。
+
+コミットメッセージ：`phase2: 2-E1 follow-up: engine ids, scene titles and one background per scene`
+
+---
+
 # 2-E2：台本の機械検査と draft
 
 ## 作業 5：src/novui/scriptcheck.py
@@ -183,7 +203,7 @@ def script_char_count(text: str, min_chars: int, max_chars: int) -> CheckResult
   - `script_flow`：場面の ID・順序が plan と同じで各1回（既存の scene_markers と同じ規則）。各場面の最後が plan のつながりと一致（choice があれば `@choice` と option が同じ text・goto・flag を同じ順で、next があれば `@goto <next>`、どちらも無ければ choice・goto が無い）。
   - `script_speakers`：say・think の speaker が、その場面の plan の characters の表示名か extras にある。plan の characters の人物で display_name が無い人物も列挙。extras の名前が人物の表示名と同じなら警告。
   - `script_expressions`：enter・face・say・think の表情が、その人物の expressions にある（expressions が無い人物は飛ばす。端役の表情は警告）。
-  - `script_stage`（決定 4）：場面ごとに立ち絵の状態を先頭から追う（場面の始まりは空。script-format §3）。`@if`・`@else` の中は say・think・narration・face だけなので、状態を分けずに追ってよい。警告：場面に `@bg` がない、または最初の `@bg` より前に say・think・narration がある／登場していない人物の say・think（`画面外の声`）／`@exit` した・登場していない人物の `@exit`・`@face`／登場中の人物の `@enter`／同じ位置への2人目の `@enter`／`@enter`・`@exit`・`@face` の人物が plan の場面の characters にない。
+  - `script_stage`（決定 4）：場面ごとに立ち絵の状態を先頭から追う（場面の始まりは空。script-format §3）。`@if`・`@else` の中は say・think・narration・face だけなので、状態を分けずに追ってよい。警告：場面に `@bg` がない／登場していない人物の say・think（`画面外の声`）／`@exit` した・登場していない人物の `@exit`・`@face`／登場中の人物の `@enter`／同じ位置への2人目の `@enter`／`@enter`・`@exit`・`@face` の人物が plan の場面の characters にない。
   - `script_backgrounds`（決定 3）：backgrounds が None なら PASS。`@bg` の名前が一覧にない。plan の場面の background と、その場面の最初の `@bg` が違う。
   - `script_speaker_words`：話者の台詞（say の text）に、その人物の speech.forbidden の語がある。
   - `script_line_length`（§9）：max_line_chars が None なら PASS。say・think・narration の text の `count_chars` が上限を超える行。
@@ -256,19 +276,50 @@ def branch_only_scenes(plan: Mapping[str, Any]) -> frozenset[str]
 
 ---
 
-# 2-E5：結合試験
+# 2-E5：エンジンの YAML への書き出し
 
-## 作業 13：tests/integration/test_script_integration.py
+## 作業 13：src/novui/export.py と cli
+
+```python
+class ExportError(Exception)
+
+def export_chapter(root: Path, chapter_id: str, *, route: str = "common",
+                   engine_chapter: str | None = None) -> dict[str, Any]
+def write_export(files: Mapping[str, Any], out_dir: Path) -> list[Path]
+```
+
+* `export_chapter`：main の作業ツリー（root）の章を読み、`{相対パス: YAML にする dict}` を返す。相対パスは `<route>/<engine_chapter>/_meta.yaml` と `<route>/<engine_chapter>/<場面の engine_id>.yaml`。対応は docs/script-format.md §6 のとおり。
+  - 前提（満たさなければ ExportError）：project の text_format が script、章が FINAL、draft.md が `script_syntax`・`script_flow` を通る、登場・話者のすべての人物に `engine_id`、場面の engine_id が重複しない。
+  - `engine_chapter` の既定は `chapter_` ＋章 ID の数字を2桁以上に詰めたもの（`ch-001` → `chapter_01`）。場面の engine_id の既定は `scene_00` から plan の順の連番。
+  - `_meta.yaml`：`{chapter: {id, number, title, route, scenes: [engine_id...]}}`（title は chapter.yaml の title、number は章 ID の数字）。
+  - 場面ファイル：`{scene: {id, title, type: dialogue, background?, characters?: {initial: [...]}}, dialogues: [...], next_scene}`。最初の台詞（say・think・narration）より前の `@enter` を initial に、それ以降の `@enter`・`@exit`・`@face` を次の台詞の `characters`（add・remove・update）に入れる。最後の台詞の後に `@enter` などが残った場合は ExportError。選択肢は場面の最後の台詞の `choices` に入れる（台詞が無い場面の選択肢は ExportError）。`@if` の中の行には `condition`。キーの順は上の順。
+* `write_export`：`yaml` で書き、書いたパスを返す（既存のファイルは上書き）。
+* cli：`novui export --work <key> --chapter <id> --out <dir> [--route <r>] [--engine-chapter <name>]`。成功は 0、ExportError・ChapterError は 2。
+
+## 作業 14：テスト（2-E5）
+
+* docs/script-format.md §5 の例（plan・characters を合わせる）を書き出し、期待する dict と完全に一致すること（initial、add・update・remove の付く台詞、condition、choices、next_scene、_meta の scenes）。
+* 各 ExportError の条件、既定の engine_chapter・場面の engine_id、cli の終了コード。
+* （可能なら）エンジンの `script_parser.dart` の `_parseDialogues` が読むキーだけを使っていること（キーの一覧を定数にして照合）。
+
+コミットメッセージ：`phase2: 2-E5 export to the engine YAML`
+
+---
+
+# 2-E6：結合試験
+
+## 作業 15：tests/integration/test_script_integration.py
 
 * 2-D4 と同じく、本文は偽の AGY が fixture の台本を返し、validate は実際の Claude。script-format §5 の例を基に、作品（text_format: script、characters に display_name・expressions、assets/backgrounds.yaml、flags/registry.yaml、rules/script.yaml）を作る。
 * E1：§5 の例そのもの → draft COMPLETED、mechanical の script_* がすべて PASS、Claude の integrity_review が得られる（判定は固定しない。print）。
 * E2：解析の誤り（`@enter C001 top`）→ draft FAILED（script_syntax）。Claude を呼ばない。
 * E3：未登録の表情・画面外の声・長すぎる台詞を仕込む → validate の mechanical に該当の WARNING。
 * E4：台本の形式で、2-D の D1（一人称の違反）と同じ仕込み → character の finding（`speech.first_person`、期待「俺」、本文「僕」）。
-* E5：実際の AGY で台本の形式の draft を1回（`NOVUI_AGY_MODEL`）。結果の draft の state と script_* の結果を print する。**AGY が形式を守れなくても試験は失敗にせず**（pytest.skip）、出力を print して報告する（AGY が台本の形式を書けるかの確認のため）。
+* E5：E1 の作品を FINAL まで進め（state_update・承認・最終承認）、`export_chapter` の結果を print する。
+* E6：実際の AGY で台本の形式の draft を1回（`NOVUI_AGY_MODEL`）。結果の draft の state と script_* の結果を print する。**AGY が形式を守れなくても試験は失敗にせず**（pytest.skip）、出力を print して報告する（AGY が台本の形式を書けるかの確認のため）。
 * 期待と違う結果は、直さずに止めて報告する。
 
-コミットメッセージ：`phase2: 2-E5 script format integration tests`
+コミットメッセージ：`phase2: 2-E6 script format integration tests`
 
 ---
 
