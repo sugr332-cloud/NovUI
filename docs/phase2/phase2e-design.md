@@ -246,3 +246,4 @@ Human の決定（2026-10-09）：分岐の中で呼び方・伏線・知識が�
 1. `_parseDialogues` で台詞の行の `condition`（`f`／`!f`）を読み、条件に合わない行を飛ばす。
 2. `_parseDialogues` で `characters.update`（`[{id, emotion, position?}]`）を読む（`ParsedCharacterChange` の action `update` は定義済みで、読み込みだけが無い）。
 3. 登録の無い話者 ID（端役）の名前を、ID の文字列のまま表示する（`l10n.getCharacterName` の既定の動作を確かめる）。
+* 選択肢の行き先は重なってよい（2026-10-12）。フラグだけが変わって同じ場面に進む選択肢はノベルゲームでよく使い、エンジンも許すため（2-E1 で入れた「行き先の重複なし」の検査を 2-E2 で外した）。

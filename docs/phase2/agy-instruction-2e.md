@@ -90,7 +90,7 @@
 * 新規 `script_rules.schema.json`：`{max_line_chars: integer >= 1}`（任意の欄。additionalProperties false）。`rules/script.yaml` の schema。
 * semantics：
   - `check_character`：`expressions` の要素の重複（schema でも見るが、明示的に）。
-  - `check_plan`：`choice` と `next` を同じ場面に書かない。choice の goto の重複なし。choice・next の行き先が plan にあり、自分より後ろ（plan の並びの添字が大きい）。最後の場面に `next` を書かない。すべての場面が先頭から到達できる（場面のつながりは script-format §3）。extras の名前が同じ場面の重複なし。
+  - `check_plan`：`choice` と `next` を同じ場面に書かない。choice・next の行き先が plan にあり、自分より後ろ（plan の並びの添字が大きい）。最後の場面に `next` を書かない。すべての場面が先頭から到達できる（場面のつながりは script-format §3）。extras の名前が同じ場面の重複なし。
   - `check_flags`：name の重複なし。`SEMANTIC_CHECKS` に `flags`・`backgrounds`（重複は schema が見るので no-op でよい）・`script_rules` を登録。
 * `protected.py`：PROTECTED_PATHS に `"flags"` と `"assets"` を足す。
 
