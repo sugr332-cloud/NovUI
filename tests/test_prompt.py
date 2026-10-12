@@ -98,7 +98,7 @@ def test_load_prompt_template() -> None:
     assert "{{" not in preamble
 
     # plan: {{chapter_id}} の置換
-    plan_prompt = load_prompt_template("plan", chapter_id="ch-042")
+    plan_prompt = load_prompt_template("plan", chapter_id="ch-042", format_notes="")
     assert "ch-042" in plan_prompt
     assert "{{chapter_id}}" not in plan_prompt
     assert "{{" not in plan_prompt

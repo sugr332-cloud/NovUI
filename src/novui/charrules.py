@@ -88,6 +88,11 @@ def character_table(
     warnings: list[str] = []
     table: dict[str, Any] = {"character": cid, "name": doc["name"]}
 
+    # 台本の形式の作品の表示名と表情（phase2e-design §2）
+    for key in ("display_name", "expressions"):
+        if key in doc:
+            table[key] = list(doc[key]) if key == "expressions" else doc[key]
+
     if "speech" in doc:
         table["speech"] = dict(doc["speech"])
 

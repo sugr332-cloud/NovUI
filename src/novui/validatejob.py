@@ -30,9 +30,11 @@ from novui.jobrunner import jobs_dir
 from novui.mechanical import load_mechanical_inputs, run_draft_mechanical_checks
 from novui.prompt import build_claude_prompt, load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
+from novui.scriptcheck import load_script_inputs, run_script_checks, script_char_count
 from novui.semantics import check_chapter
 from novui.statepatch import sha256_bytes
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
+from novui.textformat import format_notes, read_text_format
 from novui.workrepo import chapter_branches, commit_all
 from novui.works import WorkInfo
 from novui.yamlio import YamlError, load_yaml, loads_yaml, write_yaml_atomic
@@ -291,9 +293,17 @@ def run_validate_job(
         # 2. 機械検査（§11.3、§8.3 の 6）。validate の時点の作業ブランチの内容で行う
         plan = read_plan(worktree, chapter_id)
         text = (worktree / _chapter_rel(chapter_id, "draft.md")).read_text(encoding="utf-8")
-        mech: list[CheckResult] = [check_char_range(text, plan["target_chars"]["min"], plan["target_chars"]["max"])]
+        text_format = read_text_format(worktree)
+        min_c, max_c = plan["target_chars"]["min"], plan["target_chars"]["max"]
         inputs = load_mechanical_inputs(worktree)
-        mech += run_draft_mechanical_checks(text, plan, inputs)
+        if text_format == "script":
+            # 台本の形式：文字数は本文だけを数え、台本の検査は WARNING として出す（phase2e-design §4）
+            mech: list[CheckResult] = [script_char_count(text, min_c, max_c)]
+            mech += run_draft_mechanical_checks(text, plan, inputs)
+            mech += run_script_checks(text, plan, load_script_inputs(worktree, inputs.characters), for_draft=False)
+        else:
+            mech = [check_char_range(text, min_c, max_c)]
+            mech += run_draft_mechanical_checks(text, plan, inputs)
         order = read_chapters_order(worktree)
         rule_tables = scene_rule_tables(order, chapter_id, plan, inputs.characters)
         mech.append(check_character_rules(rule_tables))
@@ -358,10 +368,14 @@ def run_validate_job(
             ],
         })
         save_job_record(jdir, record)
-        integ = call("integrity_review", character_rules=character_rules, foreshadow_status=foreshadow_status)
+        notes = format_notes(text_format)
+        integ = call(
+            "integrity_review",
+            character_rules=character_rules, foreshadow_status=foreshadow_status, format_notes=notes,
+        )
         writ: ClaudeCallOutcome | None = None
         if integ.data is not None:
-            writ = call("writing_review")
+            writ = call("writing_review", format_notes=notes)
 
         for outcome in (integ, writ):
             if outcome is not None and outcome.timed_out:

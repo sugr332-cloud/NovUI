@@ -21,6 +21,7 @@ from novui.jobrunner import jobs_dir
 from novui.locks import can_accept_write_job
 from novui.prompt import load_prompt_template
 from novui.states import ChapterEvent, ChapterState, JobEvent
+from novui.textformat import format_notes, read_text_format
 from novui.works import WorkInfo
 from novui.yamlio import dumps_yaml, load_yaml
 
@@ -63,6 +64,13 @@ def collect_plan_context(repo: Path, chapter_id: str) -> list[str]:
                     candidates.append(f"chapters/{prev_id}/summary.yaml")
         except Exception:
             pass
+
+    # 台本の形式の作品：背景とフラグの一覧（phase2e-design §6）
+    try:
+        if read_text_format(repo) == "script":
+            candidates += ["assets/backgrounds.yaml", "flags/registry.yaml"]
+    except ChapterError:
+        pass
 
     # 最後に chapters/<id>/outline.md
     candidates.append(f"chapters/{chapter_id}/outline.md")
@@ -193,7 +201,9 @@ def run_plan_job(
 
     actual_job_id = job_id or next_job_id(settings, work.work_key)
     ctx_paths = tuple(collect_plan_context(repo, chapter_id))
-    task_text = load_prompt_template("plan", chapter_id=chapter_id)
+    task_text = load_prompt_template(
+        "plan", chapter_id=chapter_id, format_notes=format_notes(read_text_format(repo), for_plan=True)
+    )
 
     req = ClaudeJobRequest(
         work_key=work.work_key,
