@@ -18,6 +18,7 @@ from novui.claudejob import ClaudeRunner
 from novui.config import Settings, load_settings
 from novui.container import run_container
 from novui.draftjob import run_chapter_draft_job
+from novui.export import export_chapter, write_export
 from novui.finalize import discard_cycle, final_approve
 from novui.jobrecord import load_job_record
 from novui.jobrunner import ContainerRunner, jobs_dir
@@ -141,6 +142,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_dc.add_argument("--work", required=True, help="Novel work key")
     p_dc.add_argument("--chapter", required=True, help="Chapter ID")
     p_dc.add_argument("--force", action="store_true", help="Discard a HUMAN_APPROVED job branch")
+
+    # export --work <key> --chapter <id> --out <dir> [--route <r>] [--engine-chapter <name>]
+    p_ex = subparsers.add_parser("export")
+    p_ex.add_argument("--work", required=True, help="Novel work key")
+    p_ex.add_argument("--chapter", required=True, help="Chapter ID (must be FINAL)")
+    p_ex.add_argument("--out", required=True, help="Output directory (engine assets/scripts)")
+    p_ex.add_argument("--route", default="common", help="Engine route directory (default: common)")
+    p_ex.add_argument("--engine-chapter", default=None, help="Engine chapter id (default: chapter_NN)")
 
     # show --work <key> [--chapter <id>]
     p_show = subparsers.add_parser("show")
@@ -374,6 +383,13 @@ def main(
             work = get_work(cfg, args.work)
             discard_cycle(cfg, work, args.chapter, force=args.force)
             print(f"Job branch of chapter {args.chapter} discarded")
+            return 0
+
+        elif args.subcommand == "export":
+            work = get_work(cfg, args.work)
+            files = export_chapter(work.path, args.chapter, route=args.route, engine_chapter=args.engine_chapter)
+            for path in write_export(files, Path(args.out)):
+                print(f"wrote {path}")
             return 0
 
         elif args.subcommand == "approve-plan":
