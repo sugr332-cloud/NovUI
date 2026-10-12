@@ -131,4 +131,4 @@ NovUI は、最終承認（FINAL）した章を、エンジンの `dialogues` �
 | `@choice` と選択肢 | 場面の最後の台詞の `choices: [{text, next_scene, set_flag}]` |
 | `@goto`・次の場面 | 場面ファイルの `next_scene`（選択肢の場面と最後の場面は null） |
 
-* 書き出しに必要で、エンジンにまだ無いもの（エンジン側で足す）：台詞の行の `condition`、`characters.update` の読み込み、登録の無い話者（端役）の名前をそのまま表示すること。phase2e-design §10 を参照。
+* 書き出しに必要で、エンジンにまだ無いもの（エンジン側で足す）：台詞の行の `condition`、`characters.update` の読み込み。phase2e-design §10.4 を参照。端役の名前は、エンジンが登録の無い話者 ID をそのまま表示するので、そのままでよい。
