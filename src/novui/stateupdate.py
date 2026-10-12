@@ -41,8 +41,10 @@ from novui.proposals import (
 from novui.prompt import build_claude_prompt, load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
 from novui.semantics import check_chapter
+from novui.scriptcheck import branch_only_scenes
 from novui.statecheck import (
     REGISTRY_TARGET,
+    check_branch_scene_changes,
     check_patch_policy,
     check_patch_target,
     check_summary_patch_consistency,
@@ -54,6 +56,7 @@ from novui.statecheck import (
 )
 from novui.statepatch import apply_patch, file_sha256, is_noop_patch
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
+from novui.textformat import read_text_format
 from novui.validatejob import (
     _chapter_rel,
     _check_dict,
@@ -180,6 +183,7 @@ def run_state_update(
         # 2. Context（validate と同じ版 ＋ draft.md）
         plan = read_plan(worktree, chapter_id)
         scene_ids = [s["id"] for s in plan["scenes"]]
+        text_format = read_text_format(worktree)
         ctx_paths = [e["path"] for e in draft["context"]]
         draft_rel = _chapter_rel(chapter_id, "draft.md")
         if draft_rel not in ctx_paths:
@@ -299,6 +303,10 @@ def run_state_update(
             ok = ok and add_check(dry_run_patch(doc_before, patch))
             if not ok:
                 return fail(f"patch checks failed for {target}")
+
+            # 台本の形式：分岐の中だけを通る場面での設定の変化（2-F まではフラグごとに扱えない。design §5.3）
+            if text_format == "script":
+                add_check(check_branch_scene_changes(patch, branch_scenes=branch_only_scenes(plan)))
 
             # 伏線の順序：Patch で新しく生じた問題だけを WARNING にする（phase2d-design 決定 4、§9）
             if target == REGISTRY_TARGET:

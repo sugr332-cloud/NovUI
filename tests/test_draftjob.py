@@ -476,6 +476,9 @@ def setup_script_work(tmp_path: Path, *, display_name: bool = True) -> tuple[Set
     if display_name:
         c1.update({"display_name": "カイ", "expressions": ["neutral", "happy"]})
     (repo / "characters" / "C001.yaml").write_text(dumps_yaml(c1), encoding="utf-8")
+    (repo / "flags").mkdir(exist_ok=True)
+    (repo / "flags" / "registry.yaml").write_text(
+        dumps_yaml([{"name": "passed_gate", "description": "門を通った", "notes": ""}]), encoding="utf-8")
     commit_all(repo, "script work", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
     return settings, work
 
@@ -554,3 +557,13 @@ def test_novel_work_unchanged(tmp_path: Path) -> None:
     spec = prepare_draft(work.path, "ch-001", make_plan())
     assert spec.target_chars == (10, 200)
     assert spec.instruction.startswith("章 ch-001 の本文を書いてください。")
+
+
+def test_script_draft_flag_without_registry_fails(tmp_path: Path) -> None:
+    settings, work = setup_script_work(tmp_path)
+    repo = work.path
+    (repo / "flags" / "registry.yaml").unlink()
+    commit_all(repo, "remove flags", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    record = run_chapter_draft_job(settings, work, "ch-001", container_runner=FakeRunner(SCRIPT_TEXT))
+    assert record["state"] == "FAILED"
+    assert _checks(record)["script_flags"]["status"] == "FAIL"

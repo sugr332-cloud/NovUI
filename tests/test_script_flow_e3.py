@@ -66,7 +66,7 @@ def test_validate_script_mechanical_and_prompts(tmp_path: Path) -> None:
     names = [c["name"] for c in _review(work.path, draft["branch"])["mechanical"]]
     assert names[0] == "char_count"
     assert [n for n in names if n.startswith("script_")] == [
-        "script_syntax", "script_flow", "script_speakers", "script_expressions", "script_stage",
+        "script_syntax", "script_flow", "script_flags", "script_speakers", "script_expressions", "script_stage",
         "script_backgrounds", "script_speaker_words", "script_line_length", "script_suspicious_lines",
     ]
     assert names.index("script_suspicious_lines") < names.index("character_rules")

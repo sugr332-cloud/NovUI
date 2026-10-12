@@ -13,10 +13,10 @@ from typing import Any, Iterable, Mapping, Sequence
 from novui.checks import CheckResult, check_char_range, count_chars
 from novui.schema import SchemaError, validate_or_raise
 from novui.script import ParsedScript, ScriptLine, body_text, parse_script
-from novui.semantics import SEMANTIC_CHECKS
+from novui.semantics import SEMANTIC_CHECKS, check_plan, plan_scene_successors
 from novui.yamlio import YamlError, load_yaml
 
-DRAFT_FAIL_CHECKS: frozenset[str] = frozenset({"script_syntax", "script_flow"})
+DRAFT_FAIL_CHECKS: frozenset[str] = frozenset({"script_syntax", "script_flow", "script_flags"})
 
 
 @dataclass(frozen=True)
@@ -145,6 +145,91 @@ def check_script_flow(parsed: ParsedScript, plan: Mapping[str, Any]) -> CheckRes
         elif gotos:
             details.append(f"scene {sid}: @goto {gotos[0]} is not in plan")
     return _result("script_flow", details)
+
+
+def load_earlier_plans(root: Path, chapter_id: str) -> dict[str, Mapping[str, Any]]:
+    """plan.yaml of the chapters before chapter_id in chapters-order.yaml (unreadable plans are skipped)."""
+    try:
+        order = list(load_yaml(root / "chapters-order.yaml"))
+    except (YamlError, OSError, TypeError):
+        return {}
+    if chapter_id not in order:
+        return {}
+    plans: dict[str, Mapping[str, Any]] = {}
+    for ch in order[: order.index(chapter_id)]:
+        path = root / "chapters" / ch / "plan.yaml"
+        if not path.is_file():
+            continue
+        try:
+            doc = load_yaml(path)
+            validate_or_raise(doc, "plan")
+        except (YamlError, SchemaError, OSError):
+            continue
+        if check_plan(doc):
+            continue
+        plans[ch] = doc
+    return plans
+
+
+def flags_set_before(
+    earlier_plans: Mapping[str, Mapping[str, Any]], plan: Mapping[str, Any], scene_id: str
+) -> frozenset[str]:
+    """Flags that may be set before scene_id: every choice flag of the earlier chapters, and the choice flags
+    of the scenes before scene_id in this chapter's plan."""
+    flags: set[str] = set()
+    for p in earlier_plans.values():
+        for s in p.get("scenes", []):
+            flags |= {c["flag"] for c in s.get("choice") or [] if c.get("flag")}
+    for s in plan.get("scenes", []):
+        if s["id"] == scene_id:
+            break
+        flags |= {c["flag"] for c in s.get("choice") or [] if c.get("flag")}
+    return frozenset(flags)
+
+
+def check_script_flags(
+    parsed: ParsedScript,
+    plan: Mapping[str, Any],
+    inputs: ScriptInputs,
+    *,
+    earlier_plans: Mapping[str, Mapping[str, Any]],
+) -> CheckResult:
+    """'script_flags': flags are registered in flags/registry.yaml, and an @if flag may be set before its scene.
+    (That option flags match the plan is checked by script_flow.)"""
+    details: list[str] = []
+    used = [(sid, ln) for sid, ln in _lines(parsed) if ln.kind in ("option", "if") and ln.args.get("flag")]
+    if used and inputs.flags is None:
+        return _result("script_flags", ["flags are used but flags/registry.yaml is missing"])
+    for sid, ln in used:
+        flag = ln.args["flag"]
+        if flag not in (inputs.flags or ()):
+            details.append(f"line {ln.lineno}: flag {flag!r} is not in flags/registry.yaml")
+        if ln.kind == "if" and flag not in flags_set_before(earlier_plans, plan, sid):
+            details.append(f"line {ln.lineno}: flag {flag!r} cannot be set before scene {sid}")
+    return _result("script_flags", details)
+
+
+def branch_only_scenes(plan: Mapping[str, Any]) -> frozenset[str]:
+    """Scenes that not every path from the first scene to the end of the chapter passes (phase2e-design §5.3)."""
+    scenes = list(plan.get("scenes", []))
+    if not scenes:
+        return frozenset()
+    succ = plan_scene_successors(scenes)
+    first = scenes[0]["id"]
+
+    def reaches_end_without(skip: str) -> bool:
+        stack, seen = [first], {first}
+        while stack:
+            cur = stack.pop()
+            if not succ[cur]:
+                return True
+            for nxt in succ[cur]:
+                if nxt != skip and nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        return False
+
+    return frozenset(s["id"] for s in scenes[1:] if reaches_end_without(s["id"]))
 
 
 def check_script_speakers(parsed: ParsedScript, plan: Mapping[str, Any], inputs: ScriptInputs) -> CheckResult:
@@ -306,9 +391,15 @@ def check_script_suspicious_lines(parsed: ParsedScript) -> CheckResult:
 
 
 def run_script_checks(
-    text: str, plan: Mapping[str, Any], inputs: ScriptInputs, *, for_draft: bool
+    text: str,
+    plan: Mapping[str, Any],
+    inputs: ScriptInputs,
+    *,
+    for_draft: bool,
+    earlier_plans: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[CheckResult]:
-    """All script checks in order. for_draft turns WARNING of script_syntax and script_flow into FAIL."""
+    """All script checks in order. for_draft turns WARNING of script_syntax, script_flow and script_flags
+    into FAIL."""
     parsed = parse_script(text)
     results: list[CheckResult] = []
     if inputs.load_errors:
@@ -316,6 +407,7 @@ def run_script_checks(
     results += [
         check_script_syntax(parsed),
         check_script_flow(parsed, plan),
+        check_script_flags(parsed, plan, inputs, earlier_plans=earlier_plans or {}),
         check_script_speakers(parsed, plan, inputs),
         check_script_expressions(parsed, inputs),
         check_script_stage(parsed, plan, inputs),

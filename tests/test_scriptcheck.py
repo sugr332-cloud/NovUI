@@ -63,7 +63,7 @@ def details(c) -> list[str]:
 def test_spec_example_all_pass() -> None:
     results = run_script_checks(spec_example(), spec_plan(), inputs(), for_draft=False)
     assert [(c.name, c.status) for c in results] == [
-        ("script_syntax", "PASS"), ("script_flow", "PASS"), ("script_speakers", "PASS"),
+        ("script_syntax", "PASS"), ("script_flow", "PASS"), ("script_flags", "PASS"), ("script_speakers", "PASS"),
         ("script_expressions", "PASS"), ("script_stage", "PASS"), ("script_backgrounds", "PASS"),
         ("script_speaker_words", "PASS"), ("script_line_length", "PASS"), ("script_suspicious_lines", "PASS"),
     ], [c for c in results if c.status != "PASS"]
@@ -222,3 +222,94 @@ def test_load_script_inputs(tmp_path: Path) -> None:
         dumps_yaml([{"name": "f", "description": "d", "notes": ""}] * 2), encoding="utf-8")
     bad = load_script_inputs(tmp_path, CHARS)
     assert bad.flags is None and len(bad.load_errors) == 1 and bad.load_errors[0].startswith("flags/registry.yaml:")
+
+
+# --- 2-E4：フラグと分岐の中の場面 ---
+
+from novui.scriptcheck import (  # noqa: E402
+    branch_only_scenes,
+    check_script_flags,
+    flags_set_before,
+    load_earlier_plans,
+)
+
+
+def _choice(goto: str, flag: str | None = None, text: str = "a") -> dict:
+    c = {"text": text, "goto": goto}
+    if flag:
+        c["flag"] = flag
+    return c
+
+
+def test_flags_set_before() -> None:
+    earlier = {"ch-001": {"scenes": [{"id": "S1", "choice": [_choice("S2", "old_flag"), _choice("S2", text="b")]}]}}
+    plan = {"scenes": [
+        {"id": "S1", "choice": [_choice("S2", "f1"), _choice("S3", "f2", "b")]},
+        {"id": "S2", "choice": [_choice("S3", "f3"), _choice("S3", text="b")]},
+        {"id": "S3"},
+    ]}
+    assert flags_set_before(earlier, plan, "S1") == {"old_flag"}
+    assert flags_set_before(earlier, plan, "S2") == {"old_flag", "f1", "f2"}
+    assert flags_set_before(earlier, plan, "S3") == {"old_flag", "f1", "f2", "f3"}
+    assert flags_set_before({}, plan, "S1") == frozenset()
+
+
+def test_spec_example_flags_pass() -> None:
+    c = check_script_flags(P(spec_example()), spec_plan(), inputs(), earlier_plans={})
+    assert (c.name, c.status) == ("script_flags", "PASS")
+
+
+def test_flags_not_registered_and_not_settable() -> None:
+    plan = {"scenes": [{"id": "S1", "choice": [_choice("S2", "known"), _choice("S2", "unknown", "b")]}, {"id": "S2"}]}
+    text = ("<!-- scene: S1 -->\n@if later\nカイ「a」\n@endif\n@choice\n- a -> S2 +known\n- b -> S2 +unknown\n"
+            "<!-- scene: S2 -->\n@if known\nカイ「b」\n@endif\n")
+    c = check_script_flags(P(text), plan, inputs(flags=frozenset({"known", "later"})), earlier_plans={})
+    assert details(c) == [
+        "line 2: flag 'later' cannot be set before scene S1",
+        "line 7: flag 'unknown' is not in flags/registry.yaml",
+    ]
+
+
+def test_flags_without_registry() -> None:
+    text = "<!-- scene: S1 -->\n@if f\nカイ「a」\n@endif\n"
+    c = check_script_flags(P(text), {"scenes": [{"id": "S1"}]}, inputs(flags=None), earlier_plans={})
+    assert details(c) == ["flags are used but flags/registry.yaml is missing"]
+    plain = check_script_flags(P("<!-- scene: S1 -->\na。\n"), {"scenes": [{"id": "S1"}]}, inputs(flags=None), earlier_plans={})
+    assert plain.status == "PASS"
+
+
+def test_flags_fail_in_draft() -> None:
+    text = spec_example().replace("@if market_together", "@if no_such_flag")
+    results = {c.name: c.status for c in run_script_checks(text, spec_plan(), inputs(), for_draft=True)}
+    assert results["script_flags"] == "FAIL"
+    order = [c.name for c in run_script_checks(text, spec_plan(), inputs(), for_draft=False)]
+    assert order.index("script_flags") == order.index("script_flow") + 1
+
+
+@pytest.mark.parametrize("scenes,expected", [
+    ([{"id": "S1"}, {"id": "S2"}, {"id": "S3"}], set()),
+    ([{"id": "S1", "choice": [_choice("S2"), _choice("S3")]}, {"id": "S2", "next": "S4"}, {"id": "S3"}, {"id": "S4"}],
+     {"S2", "S3"}),
+    # 片方の選択肢だけが S2 を通り、もう一方は S3 へ直接進む
+    ([{"id": "S1", "choice": [_choice("S2"), _choice("S3")]}, {"id": "S2"}, {"id": "S3"}], {"S2"}),
+    # 同じ行き先の選択肢（フラグだけが違う）は分岐を作らない
+    ([{"id": "S1", "choice": [_choice("S2", "f"), _choice("S2")]}, {"id": "S2"}], set()),
+])
+def test_branch_only_scenes(scenes: list, expected: set) -> None:
+    assert branch_only_scenes({"scenes": scenes}) == expected
+
+
+def test_load_earlier_plans(tmp_path: Path) -> None:
+    import copy
+    from novui.yamlio import load_yaml as _ly
+    fixture = _ly(Path(__file__).parent / "fixtures" / "valid" / "plan.yaml")
+    (tmp_path / "chapters-order.yaml").write_text(dumps_yaml(["ch-001", "ch-002", "ch-003"]), encoding="utf-8")
+    for ch in ("ch-001", "ch-002", "ch-003"):
+        (tmp_path / "chapters" / ch).mkdir(parents=True)
+        doc = copy.deepcopy(fixture)
+        doc["chapter_id"] = ch
+        (tmp_path / "chapters" / ch / "plan.yaml").write_text(dumps_yaml(doc), encoding="utf-8")
+    (tmp_path / "chapters" / "ch-002" / "plan.yaml").write_text("broken: [", encoding="utf-8")
+    assert list(load_earlier_plans(tmp_path, "ch-003")) == ["ch-001"]
+    assert load_earlier_plans(tmp_path, "ch-001") == {}
+    assert load_earlier_plans(tmp_path, "ch-009") == {}

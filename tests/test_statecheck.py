@@ -366,3 +366,27 @@ def test_pointer_hints() -> None:
     assert "呼び方：C003 → /address/C003（文字列）" in hints
     assert "default" not in hints
     assert pointer_hints(CHAR, {"id": "C001"}) == "なし"
+
+
+# --- 2-E4：分岐の中の場面での設定の変化（phase2e-design §5.3） ---
+
+from novui.statecheck import BRANCH_CHANGE_NOTE, check_branch_scene_changes  # noqa: E402
+
+
+def test_branch_scene_changes() -> None:
+    patch = {"operations": [
+        {"op": "test", "path": "/0/id", "value": "F001"},
+        {"op": "add", "path": "/0/hints/-", "value": {"chapter": "ch-001", "scene": "S2"}},
+        {"op": "add", "path": "/0/hints/-", "value": {"chapter": "ch-001", "scene": "S4"}},
+        {"op": "add", "path": "/address/C002/changes/-",
+         "value": {"value": "君", "from": {"chapter": "ch-001", "scene": "S3"}, "reason": "r"}},
+        {"op": "add", "path": "/knowledge/-", "value": {"id": "K001", "fact": "x", "source_chapter": "ch-001"}},
+    ]}
+    c = check_branch_scene_changes(patch, branch_scenes={"S2", "S3"})
+    assert (c.name, c.status) == ("branch_scene_change", "WARNING")
+    assert c.details == (
+        BRANCH_CHANGE_NOTE,
+        "operations[1] /0/hints/- at S2",
+        "operations[3] /address/C002/changes/- at S3",
+    )
+    assert check_branch_scene_changes(patch, branch_scenes=set()).status == "PASS"

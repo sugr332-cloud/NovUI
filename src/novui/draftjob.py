@@ -25,7 +25,7 @@ from novui.models import ModelUnavailable, resolve_model
 from novui.paths import PathError, ensure_within, is_safe_relpath
 from novui.prompt import load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
-from novui.scriptcheck import load_script_inputs, run_script_checks, script_char_count
+from novui.scriptcheck import load_earlier_plans, load_script_inputs, run_script_checks, script_char_count
 from novui.semantics import check_chapter, check_plan
 from novui.semantics import plan_scene_successors
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
@@ -209,13 +209,14 @@ def prepare_draft(root: Path, chapter_id: str, plan: dict[str, Any]) -> DraftSpe
     if missing:
         raise ChapterError(f"characters without display_name in a script work: {missing}")
     script_inputs = load_script_inputs(root, inputs.characters)
+    earlier_plans = load_earlier_plans(root, chapter_id)
     return DraftSpec(
         instruction=build_script_draft_instruction(chapter_id, plan, character_rules=rules),
         target_chars=None,
         extra_checks=lambda text: (
             [script_char_count(text, min_c, max_c)]
             + run_draft_mechanical_checks(text, plan, inputs)
-            + run_script_checks(text, plan, script_inputs, for_draft=True)
+            + run_script_checks(text, plan, script_inputs, for_draft=True, earlier_plans=earlier_plans)
         ),
     )
 

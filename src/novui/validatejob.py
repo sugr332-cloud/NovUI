@@ -30,7 +30,7 @@ from novui.jobrunner import jobs_dir
 from novui.mechanical import load_mechanical_inputs, run_draft_mechanical_checks
 from novui.prompt import build_claude_prompt, load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
-from novui.scriptcheck import load_script_inputs, run_script_checks, script_char_count
+from novui.scriptcheck import load_earlier_plans, load_script_inputs, run_script_checks, script_char_count
 from novui.semantics import check_chapter
 from novui.statepatch import sha256_bytes
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
@@ -300,7 +300,10 @@ def run_validate_job(
             # 台本の形式：文字数は本文だけを数え、台本の検査は WARNING として出す（phase2e-design §4）
             mech: list[CheckResult] = [script_char_count(text, min_c, max_c)]
             mech += run_draft_mechanical_checks(text, plan, inputs)
-            mech += run_script_checks(text, plan, load_script_inputs(worktree, inputs.characters), for_draft=False)
+            mech += run_script_checks(
+                text, plan, load_script_inputs(worktree, inputs.characters), for_draft=False,
+                earlier_plans=load_earlier_plans(worktree, chapter_id),
+            )
         else:
             mech = [check_char_range(text, min_c, max_c)]
             mech += run_draft_mechanical_checks(text, plan, inputs)

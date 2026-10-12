@@ -393,3 +393,32 @@ def pointer_hints(target: str, doc_before: Any) -> str:
                 form = "文字列" if isinstance(val, str) else "object"
                 lines.append(f"呼び方：{partner} → /address/{partner}（{form}）")
     return "\n".join(lines) if lines else "なし"
+
+
+BRANCH_CHANGE_NOTE = (
+    "settings change in a scene that only some paths pass; until 2-F, settings per flag are not supported "
+    "(phase2e-design 5.3)"
+)
+
+
+def _scene_of(value: Any) -> str | None:
+    """Scene of a position {chapter, scene} or of a change {value, from: {chapter, scene}}."""
+    if isinstance(value, Mapping):
+        if isinstance(value.get("from"), Mapping):
+            value = value["from"]
+        if "chapter" in value and isinstance(value.get("scene"), str):
+            return value["scene"]
+    return None
+
+
+def check_branch_scene_changes(patch: Mapping[str, Any], *, branch_scenes: Collection[str]) -> CheckResult:
+    """'branch_scene_change' (WARNING): operations whose position (a change's from, or a registry position) is
+    a scene that only some paths of the chapter pass. Knowledge has no position and is not checked."""
+    found = [
+        f"operations[{i}] {op.get('path')} at {scene}"
+        for i, op in enumerate(patch.get("operations", []))
+        if op.get("op") in ("add", "replace")
+        and (scene := _scene_of(op.get("value"))) is not None
+        and scene in branch_scenes
+    ]
+    return _result("branch_scene_change", "WARNING", [BRANCH_CHANGE_NOTE] + found if found else [])
