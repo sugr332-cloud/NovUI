@@ -34,6 +34,7 @@ from novui.models import (
 from novui.locks import RunLock
 from novui.planjob import approve_plan, reject_plan, run_plan_job, run_plan_revision_job
 from novui.requestflow import redraft, resolve_request, unresolved_requests
+from novui.routingjob import ROUTING_SCOPES, approve_routing, reject_routing, run_routing_job
 from novui.stateupdate import approve_state, reject_state, run_state_update, show_proposal
 from novui.validatejob import (
     DECISION_ACTIONS,
@@ -181,6 +182,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_q.add_argument("--work", required=True, help="Novel work key")
     p_q.add_argument("--cancel", default=None, help="Cancel a queue item (Q-0001)")
 
+    # instruct --work <key> --chapter <id> --scope range|chapter|plan [--anchor ...] <instruction>
+    p_in = subparsers.add_parser("instruct")
+    p_in.add_argument("--work", required=True, help="Novel work key")
+    p_in.add_argument("--chapter", required=True, help="Chapter ID")
+    p_in.add_argument("--scope", required=True, choices=ROUTING_SCOPES, help="What the instruction is about")
+    p_in.add_argument("--anchor", default=None, help="scope range: text of the range")
+    p_in.add_argument("--before", default="", help="scope range: text just before the range")
+    p_in.add_argument("--after", default="", help="scope range: text just after the range")
+    p_in.add_argument("instruction", help="The instruction to Claude")
+
+    # approve-routing --work <key> --id <INS-0001> [--discard-branch]
+    p_ar = subparsers.add_parser("approve-routing")
+    p_ar.add_argument("--work", required=True, help="Novel work key")
+    p_ar.add_argument("--id", required=True, help="Instruction ID (INS-0001)")
+    p_ar.add_argument("--discard-branch", action="store_true", help="Discard the job branch (plan revision)")
+
+    # reject-routing --work <key> --id <INS-0001>
+    p_xr = subparsers.add_parser("reject-routing")
+    p_xr.add_argument("--work", required=True, help="Novel work key")
+    p_xr.add_argument("--id", required=True, help="Instruction ID (INS-0001)")
+
     # cancel-job --work <key> --job <job_id>
     p_cj = subparsers.add_parser("cancel-job")
     p_cj.add_argument("--work", required=True, help="Novel work key")
@@ -323,6 +345,27 @@ def _waiting_edit_job(settings: Settings, work: Any, record: dict[str, Any]) -> 
         if rec["job_type"] in EDIT_JOB_TYPES:
             return str(rec["job_id"]), str(rec["job_type"])
     return None
+
+
+def _print_routing(doc: dict[str, Any]) -> None:
+    """Print Claude's routing so that the Human can approve or reject it."""
+    r = doc["routing"]
+    print(f"Routing {doc['instruction_id']} [{doc['status']}] for {doc['chapter_id']} (scope {doc['scope']})")
+    if r["scope_mismatch"]:
+        print(f"Scope mismatch: {r['scope_mismatch_reason']}")
+    for i, job in enumerate(r["proposed_jobs"]):
+        dep = f" (after {job['depends_on']})" if job["depends_on"] is not None else ""
+        print(f"  [{i}] {job['job_type']}{dep}: {job['summary']}")
+        if job["anchor"] is not None:
+            print(f"      range: {job['anchor']['text']}")
+    for imp in r["impact"]:
+        print(f"Impact: {imp['target']}: {imp['reason']}")
+    for q in r["questions"]:
+        print(f"Question: {q}")
+    if doc["status"] == "pending":
+        print(f"Approve with approve-routing --id {doc['instruction_id']}, or reject-routing.")
+    else:
+        print(f"Answer the questions in a new instruct, and reject-routing --id {doc['instruction_id']}.")
 
 
 def main(
@@ -534,6 +577,32 @@ def main(
                 job = f" job {item['job_id']}" if item["job_id"] else ""
                 note = f" — {item['note']}" if item["note"] else ""
                 print(f"{item['item_id']} [{item['status']}] {item['job_type']} {item['chapter_id']}{where}{job}{note}")
+            return 0
+
+        elif args.subcommand == "instruct":
+            work = get_work(cfg, args.work)
+            anchor = None
+            if args.anchor is not None:
+                anchor = {"text": args.anchor, "before": args.before, "after": args.after}
+            record, doc = run_routing_job(cfg, work, args.chapter, args.scope, args.instruction, anchor=anchor,
+                                          claude_runner=claude_runner)
+            rc = _report_job(record)
+            if doc is not None:
+                _print_routing(doc)
+            return rc
+
+        elif args.subcommand == "approve-routing":
+            work = get_work(cfg, args.work)
+            items = approve_routing(cfg, work, args.id, discard_branch=args.discard_branch)
+            for item in items:
+                print(f"Queued {item['item_id']}: {item['job_type']} {item['chapter_id']}")
+            print("Run run-queue to execute them.")
+            return 0
+
+        elif args.subcommand == "reject-routing":
+            work = get_work(cfg, args.work)
+            reject_routing(cfg, work, args.id)
+            print(f"{args.id} rejected and removed")
             return 0
 
         elif args.subcommand == "cancel-job":

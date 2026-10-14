@@ -188,7 +188,24 @@ draft の【要確認】は、本文に印を残したまま WAITING_HUMAN に�
 
 ---
 
-## 8. 範囲外（後の段階）
+## 8. 実装の記録（2-D5〜2-D9）
+
+| 段階 | commit | 実装で決めたこと |
+|---|---|---|
+| 2-D5 | 6357fd6 | 範囲の指定の誤り（区切りを含む・場面の外）と Context の食い違いは、Job を作らずにエラー。判断待ちの編集は `edit-range --retry` か `cancel-job` で閉じる |
+| 2-D6 | 68d46ba | range_edit と chapter_rewrite は同じ実行の流れ（`editjob._run_edit`）。章の書き直しの検査は draft と同じ（小説の場面の区切り・文字数は WARNING） |
+| 2-D7・2-D8 | 5d5a756 | 同じ CLI のファイルを変えたため、1つの commit にした。キューの項目が実行の前の条件で止まったとき（ChapterError）は、状態を変えずに止まる |
+| 2-D9 | （この commit） | 下のとおり |
+
+2-D9 で決めたこと：
+
+* proposed_jobs の `anchor` と `instruction` は、schema の必須の欄にした（null は可）。questions と proposed_jobs の両方がある、depends_on が後ろを指す、は既存の意味の検査（`check_instruction_routing`）が Claude の出力の段階で弾く（再要求の対象）。Controller の追加の検査（`routing_jobs`）は、使えない job_type、anchor の有無、scope range での range_edit 以外（scope_mismatch でないとき）、案も質問も無い、の4つ。
+* 記録の instruction_id・scope・chapter_id・instruction は、Claude の出力ではなく Controller の値で上書きする。
+* instruction_id は作品のデータの採番ファイルで振る（破棄した振り分けの番号を使い回さない）。
+* 振り分けには、そのときの基準（作業ブランチがあればその HEAD、なければ main の HEAD）を記録する。承認の時点で基準が変わっていれば承認を断り、`instruct` のやり直しを求める（§13.4）。
+* questions を返した振り分けの Job は WAITING_HUMAN。`reject-routing` で振り分けを消すと、その Job は CANCELLED になる。
+
+## 9. 範囲外（後の段階）
 
 * scope `setting`（設定変更と影響範囲分析）、`redline`（添削）：Phase 3・4
 * FINAL の章の plan_revision と chapter_rewrite（後続章の要確認）：Phase 3
@@ -197,7 +214,7 @@ draft の【要確認】は、本文に印を残したまま WAITING_HUMAN に�
 
 ---
 
-## 9. 決定事項
+## 10. 決定事項
 
 | # | 論点 | 決定（2026-10-14） |
 |---|---|---|
