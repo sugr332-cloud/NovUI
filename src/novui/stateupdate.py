@@ -25,6 +25,8 @@ from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeCallOutcome, ClaudeRunner, claude_version, run_claude_call
 from novui.config import Settings
 from novui.draftjob import read_plan
+from novui.flagcheck import check_new_flag_conditions, flag_check_args
+from novui.flagstate import branch_conditions
 from novui.foreshadowcheck import check_new_order_issues
 from novui.gitinspect import get_changes, run_git
 from novui.ids import next_job_id
@@ -41,10 +43,8 @@ from novui.proposals import (
 from novui.prompt import build_claude_prompt, load_prompt_template
 from novui.schema import SchemaError, validate_or_raise
 from novui.semantics import check_chapter
-from novui.scriptcheck import branch_only_scenes
 from novui.statecheck import (
     REGISTRY_TARGET,
-    check_branch_scene_changes,
     check_patch_policy,
     check_patch_target,
     check_summary_patch_consistency,
@@ -79,6 +79,30 @@ _REGISTRY_REL = "foreshadowing/registry.yaml"
 
 def _record_path(settings: Settings, work: WorkInfo, job_id: str) -> Path:
     return jobs_dir(settings, work.work_key) / f"{job_id}.yaml"
+
+
+_IF_LINE_RE = re.compile(r"^\s*@if ", re.MULTILINE)
+
+
+def _flag_context(
+    worktree: Path, chapter_id: str, plan: dict[str, Any], draft_text: str
+) -> tuple[dict[str, Any] | None, str, str]:
+    """Arguments of the flag_conditions check, and the branch notes of the summary and state_patch prompts
+    (phase2f-design §5, §6). The notes are '' when the chapter has no branch scene and no @if."""
+    try:
+        order = read_chapters_order(worktree)
+    except (ChapterError, SchemaError, YamlError):
+        return None, "", ""
+    flag_kw = flag_check_args(worktree, order, chapter_id, plan)
+    conds = branch_conditions(plan, flag_kw["flag_states"], chapter_id)
+    if not conds and not _IF_LINE_RE.search(draft_text):
+        return flag_kw, "", ""
+    scenes = "\n".join(f"* {sid}：{'、'.join(c) if c else '条件なし'}" for sid, c in conds.items()) or "（分岐の場面は無い）"
+    return (
+        flag_kw,
+        load_prompt_template("branch_notes_summary", branch_scenes=scenes),
+        load_prompt_template("branch_notes_patch", branch_scenes=scenes, chapter_id=chapter_id),
+    )
 
 
 def _character_ids(ctx_paths: list[str]) -> list[str]:
@@ -186,6 +210,13 @@ def run_state_update(
         text_format = read_text_format(worktree)
         ctx_paths = [e["path"] for e in draft["context"]]
         draft_rel = _chapter_rel(chapter_id, "draft.md")
+        # 台本の形式：フラグの状態と分岐の場面（phase2f-design §5、§6）
+        flag_kw: dict[str, Any] | None = None
+        summary_notes = patch_notes = ""
+        if text_format == "script":
+            flag_kw, summary_notes, patch_notes = _flag_context(
+                worktree, chapter_id, plan, (worktree / draft_rel).read_text(encoding="utf-8")
+            )
         if draft_rel not in ctx_paths:
             ctx_paths.append(draft_rel)
         log_dir = jdir / f"{actual_job_id}-logs"
@@ -242,6 +273,7 @@ def run_state_update(
             scene_ids=", ".join(scene_ids),
             character_ids=", ".join(_character_ids(ctx_paths)) or "なし",
             foreshadow_ids=", ".join(_foreshadow_ids(worktree)) or "なし",
+            branch_notes=summary_notes,
         )
         outcome = call("summary", task, f"{actual_job_id}-summary", "claude_summary")
         failed = call_failed(outcome)
@@ -286,6 +318,7 @@ def run_state_update(
                 base_hash=base_hash,
                 pointer_hints=pointer_hints(target, doc_before),
                 next_knowledge_id=f"K{knowledge_start + knowledge_used:03d}",
+                branch_notes=patch_notes,
             )
             outcome = call("state_patch", task, f"{actual_job_id}-patch-{n}", f"claude_state_patch_{n}")
             failed = call_failed(outcome)
@@ -304,9 +337,13 @@ def run_state_update(
             if not ok:
                 return fail(f"patch checks failed for {target}")
 
-            # 台本の形式：分岐の中だけを通る場面での設定の変化（2-F まではフラグごとに扱えない。design §5.3）
-            if text_format == "script":
-                add_check(check_branch_scene_changes(patch, branch_scenes=branch_only_scenes(plan)))
+            # 台本の形式：設定の条件 when。Patch で新しく生じた問題だけを WARNING にする（phase2f-design §5）
+            if flag_kw is not None:
+                after = apply_patch(doc_before, patch)
+                if target == REGISTRY_TARGET:
+                    add_check(check_new_flag_conditions(({}, doc_before), ({}, after), **flag_kw))
+                else:
+                    add_check(check_new_flag_conditions(({target: doc_before}, None), ({target: after}, None), **flag_kw))
 
             # 伏線の順序：Patch で新しく生じた問題だけを WARNING にする（phase2d-design 決定 4、§9）
             if target == REGISTRY_TARGET:

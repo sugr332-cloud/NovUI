@@ -296,3 +296,130 @@ def test_check_character_rules() -> None:
     assert check_character_rules(RuleTables(scenes=(), warnings=())).status == "PASS"
     c = check_character_rules(RuleTables(scenes=(), warnings=("w",)))
     assert (c.name, c.status, c.details) == ("character_rules", "WARNING", ("w",))
+
+
+# --- 2-F2：フラグごとの規則表（phase2f-design §3） ---
+
+from novui.charrules import MAX_FLAGS_PER_VALUE, flag_value  # noqa: E402
+from novui.flagstate import work_flag_states  # noqa: E402
+
+E = frozenset()
+M = frozenset({"market_together"})
+FORDER = ["ch-001", "ch-002"]
+
+
+def CW(value: str, ch: str, sc: str, when: str) -> dict:
+    return {**CH(value, ch, sc), "when": when}
+
+
+def market_plan() -> dict:
+    return {"type": "plan", "chapter_id": "ch-001", "scenes": [
+        {"id": "S1", "characters": ["C001"], "choice": [
+            {"text": "一緒に市場を回る", "goto": "S2", "flag": "market_together"}, {"text": "船を見に行く", "goto": "S3"}]},
+        {"id": "S2", "characters": ["C001"], "next": "S4"},
+        {"id": "S3", "characters": ["C001"]},
+        {"id": "S4", "characters": ["C001"]},
+    ]}
+
+
+def kai(**extra) -> dict:
+    return {"id": "C001", "name": "カイ", "address": {"C002": {"default": "美咲", "changes": [
+        CW("君", "ch-001", "S2", "market_together")]}}, **extra}
+
+
+def test_effective_value_filters_by_state() -> None:
+    changes = [CW("君", "ch-001", "S2", "market_together"), CW("あんた", "ch-001", "S3", "not market_together")]
+    assert effective_value(FORDER, "美咲", changes, P("ch-001", "S4"), label="L", state=M)[0] == "君"
+    assert effective_value(FORDER, "美咲", changes, P("ch-001", "S4"), label="L", state=E)[0] == "あんた"
+    assert effective_value(FORDER, "美咲", changes, P("ch-001", "S4"), label="L")[0] == "あんた"
+
+
+def test_same_from_different_when_is_not_duplicate() -> None:
+    changes = [CW("君", "ch-001", "S2", "f"), CW("あんた", "ch-001", "S2", "not f")]
+    assert effective_value(FORDER, "d", changes, P("ch-001", "S2"), label="L")[1] == []
+    changes.append(CW("お前", "ch-001", "S2", "f"))
+    assert "multiple changes from ch-001 S2 when f" in effective_value(FORDER, "d", changes, P("ch-001", "S2"), label="L")[1][0]
+
+
+def test_flag_value_rows_and_single_value() -> None:
+    changes = [CW("君", "ch-001", "S2", "market_together")]
+    value, w = flag_value(FORDER, "美咲", changes, P("ch-002", "S1"), {E, M}, label="L")
+    assert value == [
+        {"value": "美咲", "flags": {"market_together": False}},
+        {"value": "君", "flags": {"market_together": True}},
+    ] and w == []
+    # 状態が1つに決まる場面では、条件を解いた1つの値
+    assert flag_value(FORDER, "美咲", changes, P("ch-001", "S2"), {M}, label="L") == ("君", [])
+    assert flag_value(FORDER, "美咲", changes, P("ch-001", "S3"), {E}, label="L") == ("美咲", [])
+    # 変化の位置より前では、状態によらず default
+    assert flag_value(FORDER, "美咲", changes, P("ch-001", "S1"), {E, M}, label="L") == ("美咲", [])
+
+
+def test_flag_value_two_flags_and_limit() -> None:
+    changes = [CW("君", "ch-001", "S2", "f"), CW("お前", "ch-001", "S3", "g")]
+    states = {E, frozenset({"f"}), frozenset({"g"}), frozenset({"f", "g"})}
+    value, w = flag_value(FORDER, "d", changes, P("ch-002", "S1"), states, label="L")
+    assert value == [
+        {"value": "d", "flags": {"f": False, "g": False}},
+        {"value": "お前", "flags": {"f": False, "g": True}},
+        {"value": "君", "flags": {"f": True, "g": False}},
+        {"value": "お前", "flags": {"f": True, "g": True}},
+    ] and w == []
+    assert MAX_FLAGS_PER_VALUE == 2
+    changes.append(CW("あなた", "ch-001", "S4", "h"))
+    states = {frozenset(s) for s in ([], ["f"], ["g"], ["h"])}
+    value, w = flag_value(FORDER, "d", changes, P("ch-002", "S1"), states, label="C001 address.C002")
+    assert value == {"default": "d", "changes": changes}
+    assert "C001 address.C002 depends on 3 flags at ch-002 S1 (limit 2)" in w[0]
+
+
+def test_flag_value_unknown_states_lists_changes() -> None:
+    changes = [CW("君", "ch-001", "S2", "f")]
+    value, w = flag_value(FORDER, "d", changes, P("ch-002", "S1"), None, label="L")
+    assert value == {"default": "d", "changes": changes} and "unknown" in w[0]
+    # when の無い changes は、状態が分からなくても今までどおり
+    assert flag_value(FORDER, "d", [CH("君", "ch-001", "S2")], P("ch-002", "S1"), None, label="L") == ("君", [])
+
+
+def test_knowledge_when() -> None:
+    doc = kai(knowledge=[
+        {"id": "K001", "fact": "a", "source_chapter": "ch-001", "when": "market_together"},
+        {"id": "K002", "fact": "b", "source_chapter": "ch-001", "when": "not market_together"},
+        {"id": "K003", "fact": "c", "source_chapter": "ch-001"},
+    ])
+    known = character_table(FORDER, doc, P("ch-002", "S1"), {E, M})[0]["knowledge"]
+    assert [k.get("when") for k in known] == ["market_together", "not market_together", None]
+    known = character_table(FORDER, doc, P("ch-002", "S1"), {M})[0]["knowledge"]
+    assert [(k["id"], "when" in k) for k in known] == [("K001", False), ("K003", False)]
+    known = character_table(FORDER, doc, P("ch-002", "S1"), None)[0]["knowledge"]
+    assert [k.get("when") for k in known] == ["market_together", "not market_together", None]
+
+
+def test_relationship_rows() -> None:
+    doc = {"id": "C001", "name": "カイ", "relationships": [
+        {"with": "C002", "state": "幼なじみ", "changes": [CW("親友", "ch-001", "S2", "market_together")]}]}
+    rels = character_table(FORDER, doc, P("ch-002", "S1"), {E, M})[0]["relationships"]
+    assert rels == [{"with": "C002", "state": [
+        {"value": "幼なじみ", "flags": {"market_together": False}},
+        {"value": "親友", "flags": {"market_together": True}},
+    ]}]
+
+
+def test_scene_tables_with_flag_states() -> None:
+    plan = market_plan()
+    fs = work_flag_states(FORDER, {"ch-001": plan})
+    tables = scene_rule_tables(FORDER, "ch-001", plan, {"C001": kai()}, fs)
+    by_scene = {s["scene"]: s["characters"][0]["address"]["C002"] for s in tables.scenes}
+    assert by_scene["S1"] == "美咲"
+    assert by_scene["S2"] == "君"
+    assert by_scene["S3"] == "美咲"
+    assert by_scene["S4"] == [
+        {"value": "美咲", "flags": {"market_together": False}},
+        {"value": "君", "flags": {"market_together": True}},
+    ]
+    assert tables.warnings == ()
+    rendered = render_rule_tables(tables)
+    assert "market_together: true" in rendered
+    # flag_states が無いときは、どのフラグも立っていない
+    tables = scene_rule_tables(FORDER, "ch-001", plan, {"C001": kai()})
+    assert {s["characters"][0]["address"]["C002"] for s in tables.scenes} == {"美咲"}

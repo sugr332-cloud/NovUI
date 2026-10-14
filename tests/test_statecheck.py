@@ -368,25 +368,24 @@ def test_pointer_hints() -> None:
     assert pointer_hints(CHAR, {"id": "C001"}) == "なし"
 
 
-# --- 2-E4：分岐の中の場面での設定の変化（phase2e-design §5.3） ---
-
-from novui.statecheck import BRANCH_CHANGE_NOTE, check_branch_scene_changes  # noqa: E402
+# --- 2-F3：Patch の when（phase2f-design §6.1） ---
 
 
-def test_branch_scene_changes() -> None:
-    patch = {"operations": [
-        {"op": "test", "path": "/0/id", "value": "F001"},
-        {"op": "add", "path": "/0/hints/-", "value": {"chapter": "ch-001", "scene": "S2"}},
-        {"op": "add", "path": "/0/hints/-", "value": {"chapter": "ch-001", "scene": "S4"}},
-        {"op": "add", "path": "/address/C002/changes/-",
-         "value": {"value": "君", "from": {"chapter": "ch-001", "scene": "S3"}, "reason": "r"}},
-        {"op": "add", "path": "/knowledge/-", "value": {"id": "K001", "fact": "x", "source_chapter": "ch-001"}},
-    ]}
-    c = check_branch_scene_changes(patch, branch_scenes={"S2", "S3"})
-    assert (c.name, c.status) == ("branch_scene_change", "WARNING")
-    assert c.details == (
-        BRANCH_CHANGE_NOTE,
-        "operations[1] /0/hints/- at S2",
-        "operations[3] /address/C002/changes/- at S3",
-    )
-    assert check_branch_scene_changes(patch, branch_scenes=set()).status == "PASS"
+@pytest.mark.parametrize("when,ok", [("market_together", True), ("not market_together", True), ("Bad", False), (1, False)])
+def test_policy_allows_when(when: object, ok: bool) -> None:
+    reg_ops = [_t(), {"op": "add", "path": "/0/hints/-", "value": {**_pos(), "when": when}}]
+    r = _policy(_patch(REG, reg_ops), _reg())
+    assert (r.status == "PASS") is ok, r.details
+    char_ops = [
+        {"op": "add", "path": "/knowledge/-", "value": {**_k()["value"], "when": when}},
+        {"op": "add", "path": "/address/C002/changes/-", "value": {**_change("君"), "when": when}},
+    ]
+    r = _policy(_patch(CHAR, char_ops), _char())
+    assert (r.status == "PASS") is ok, r.details
+    if not ok:
+        assert len([d for d in r.details if ".when: must be a flag name" in d]) == 2
+
+
+def test_policy_rejects_other_extra_keys() -> None:
+    r = _policy(_patch(REG, [_t(), {"op": "add", "path": "/0/hints/-", "value": {**_pos(), "note": "x"}}]), _reg())
+    assert r.status == "FAIL"

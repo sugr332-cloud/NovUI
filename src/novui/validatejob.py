@@ -12,6 +12,7 @@ from typing import Any
 
 from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order
 from novui.charrules import check_character_rules, render_rule_tables, scene_rule_tables
+from novui.flagcheck import check_flag_conditions, flag_check_args
 from novui.checks import CheckResult, check_allowed_paths, check_char_range
 from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeCallOutcome, ClaudeRunner, claude_version, run_claude_call
@@ -322,9 +323,13 @@ def run_validate_job(
             mech = [check_char_range(text, min_c, max_c)]
             mech += run_draft_mechanical_checks(text, plan, inputs)
         order = read_chapters_order(worktree)
-        rule_tables = scene_rule_tables(order, chapter_id, plan, inputs.characters)
+        flag_kw = flag_check_args(worktree, order, chapter_id, plan)
+        rule_tables = scene_rule_tables(order, chapter_id, plan, inputs.characters, flag_kw["flag_states"])
         mech.append(check_character_rules(rule_tables))
         registry = load_registry(worktree)
+        if text_format == "script":
+            # 設定の条件 when（phase2f-design §5）
+            mech.append(check_flag_conditions(inputs.characters, registry, **flag_kw))
         mech += run_foreshadow_checks(order, registry, plan, chapter_id)
         mechanical = [_check_dict(c) for c in mech]
         character_rules = render_rule_tables(rule_tables)

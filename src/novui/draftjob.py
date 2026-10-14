@@ -13,6 +13,7 @@ from novui.chapters import (
     read_chapters_order,
 )
 from novui.charrules import render_rule_tables, scene_rule_tables
+from novui.flagstate import load_flag_states
 from novui.checks import CheckResult
 from novui.config import Settings
 from novui.container import run_container
@@ -115,7 +116,9 @@ def build_character_rules_text(
     root: Path, chapter_id: str, plan: Mapping[str, Any], inputs: MechanicalInputs
 ) -> str:
     """Rule tables of the plan's scenes for {{character_rules}} (phase2d-design §3). 'なし' when empty."""
-    return render_rule_tables(scene_rule_tables(read_chapters_order(root), chapter_id, plan, inputs.characters))
+    order = read_chapters_order(root)
+    flag_states = load_flag_states(root, order, chapter_id=chapter_id, plan=plan)
+    return render_rule_tables(scene_rule_tables(order, chapter_id, plan, inputs.characters, flag_states))
 
 
 def build_draft_instruction(chapter_id: str, plan: dict[str, Any], *, character_rules: str) -> str:

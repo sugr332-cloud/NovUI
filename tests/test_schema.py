@@ -437,3 +437,38 @@ def test_character_engine_id(eid: str, ok: bool) -> None:
 ])
 def test_plan_scene_engine_id_and_title(extra: dict, ok: bool) -> None:
     assert (validate(_plan_with(**extra), "plan") == []) is ok
+
+
+# --- 2-F1：設定の変化の条件 when（phase2f-design §2.2） ---
+
+@pytest.mark.parametrize("when,ok", [
+    ("market_together", True), ("not market_together", True),
+    ("not", False), ("not not f", False), ("Market", False), ("f and g", False), ("", False),
+])
+def test_when_condition(when: str, ok: bool) -> None:
+    change = {"value": "君", "from": {"chapter": "ch-001", "scene": "S2"}, "reason": "r", "when": when}
+    char = {"id": "C001", "name": "a", "address": {"C002": {"default": "美咲", "changes": [change]}},
+            "relationships": [{"with": "C002", "state": "友人", "changes": [change]}],
+            "knowledge": [{"id": "K001", "fact": "f", "source_chapter": "ch-001", "when": when}]}
+    assert (validate(char, "character") == []) is ok
+    reg = copy.deepcopy(load_yaml(FIXTURES_DIR / "registry.yaml"))
+    reg[0]["introduced"] = [{"chapter": "ch-001", "scene": "S2", "when": when}]
+    assert (validate(reg, "registry") == []) is ok
+
+
+def test_planned_resolution_has_no_when() -> None:
+    reg = copy.deepcopy(load_yaml(FIXTURES_DIR / "registry.yaml"))
+    reg[0]["planned_resolution"] = {"chapter": "ch-001", "scene": "S2", "when": "f"}
+    assert validate(reg, "registry") != []
+
+
+def test_summary_branches() -> None:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "summary.yaml"))
+    assert validate(doc, "summary") == []
+    doc["branches"] = [{"scenes": ["S2"], "when": "market_together", "events": ["S2 二人で市場を回る"]},
+                       {"scenes": ["S3"], "when": None, "events": ["S3 船を見る"]}]
+    assert validate(doc, "summary") == []
+    for bad in ({"scenes": [], "when": None, "events": ["e"]}, {"scenes": ["S2"], "when": "Bad", "events": ["e"]},
+                {"scenes": ["S2"], "when": None, "events": []}, {"scenes": ["S2"], "events": ["e"]}):
+        doc["branches"] = [bad]
+        assert validate(doc, "summary") != [], bad

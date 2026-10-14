@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from novui.checks import CheckResult, check_char_range, count_chars
+from novui.flagstate import branch_scenes as branch_only_scenes  # noqa: F401  2-E4 からの名前
 from novui.schema import SchemaError, validate_or_raise
 from novui.script import ParsedScript, ScriptLine, body_text, parse_script
-from novui.semantics import SEMANTIC_CHECKS, check_plan, plan_scene_successors
+from novui.semantics import SEMANTIC_CHECKS, check_plan
 from novui.yamlio import YamlError, load_yaml
 
 DRAFT_FAIL_CHECKS: frozenset[str] = frozenset({"script_syntax", "script_flow", "script_flags"})
@@ -207,29 +208,6 @@ def check_script_flags(
         if ln.kind == "if" and flag not in flags_set_before(earlier_plans, plan, sid):
             details.append(f"line {ln.lineno}: flag {flag!r} cannot be set before scene {sid}")
     return _result("script_flags", details)
-
-
-def branch_only_scenes(plan: Mapping[str, Any]) -> frozenset[str]:
-    """Scenes that not every path from the first scene to the end of the chapter passes (phase2e-design §5.3)."""
-    scenes = list(plan.get("scenes", []))
-    if not scenes:
-        return frozenset()
-    succ = plan_scene_successors(scenes)
-    first = scenes[0]["id"]
-
-    def reaches_end_without(skip: str) -> bool:
-        stack, seen = [first], {first}
-        while stack:
-            cur = stack.pop()
-            if not succ[cur]:
-                return True
-            for nxt in succ[cur]:
-                if nxt != skip and nxt not in seen:
-                    seen.add(nxt)
-                    stack.append(nxt)
-        return False
-
-    return frozenset(s["id"] for s in scenes[1:] if reaches_end_without(s["id"]))
 
 
 def check_script_speakers(parsed: ParsedScript, plan: Mapping[str, Any], inputs: ScriptInputs) -> CheckResult:

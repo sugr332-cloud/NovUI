@@ -142,3 +142,51 @@ def test_plan_prompt_for_novel_unchanged(novel_setup: Any) -> None:
 
     run_plan_job(settings, work, CH, claude_runner=fake_runner)
     assert "台本の形式" not in prompts[0]
+
+
+# --- 2-F2：フラグごとの規則表が draft と validate のプロンプトに入る（phase2f-design §3）
+
+
+def test_flag_rows_in_draft_and_validate_prompts(tmp_path: Path) -> None:
+    from test_draftjob import FakeRunner as Runner, setup_script_work as setup
+    settings, work = setup(tmp_path)
+    repo = work.path
+    c1 = load_yaml(repo / "characters" / "C001.yaml")
+    c1["address"] = {"default": "あんた", "C002": {"default": "美咲", "changes": [
+        {"value": "君", "from": {"chapter": CH, "scene": "S2"}, "reason": "門を通った", "when": "passed_gate"}]}}
+    (repo / "characters" / "C001.yaml").write_text(dumps_yaml(c1), encoding="utf-8")
+    commit_all(repo, "when", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+
+    runner = Runner(SCRIPT_TEXT)
+    rec = run_chapter_draft_job(settings, work, CH, container_runner=runner)
+    assert rec["state"] == "COMPLETED", rec["checks"]
+    assert "passed_gate: true" in runner.prompt and "{value, flags}" in runner.prompt
+
+    fake = ok_claude()
+    run_validate_job(settings, work, CH, claude_runner=fake)
+    integ = fake.calls[0]["prompt"]
+    rules = integ.split("場面ごとの人物の規則（Controller")[1]
+    s1, s2 = rules.split("- scene: S2")
+    assert "C002: 美咲" in s1
+    assert "value: 君" in s2 and "passed_gate: true" in s2 and "passed_gate: false" in s2
+    mech = {c["name"]: c for c in _review(repo, rec["branch"])["mechanical"]}
+    assert mech["character_rules"]["status"] == "PASS"
+    assert mech["flag_conditions"]["status"] == "PASS"
+
+
+def test_validate_flag_conditions_warning(tmp_path: Path) -> None:
+    from test_draftjob import FakeRunner as Runner, setup_script_work as setup
+    settings, work = setup(tmp_path)
+    repo = work.path
+    c1 = load_yaml(repo / "characters" / "C001.yaml")
+    c1["knowledge"] = [{"id": "K900", "fact": "f", "source_chapter": CH, "when": "no_such_flag"}]
+    (repo / "characters" / "C001.yaml").write_text(dumps_yaml(c1), encoding="utf-8")
+    commit_all(repo, "when", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    rec = run_chapter_draft_job(settings, work, CH, container_runner=Runner(SCRIPT_TEXT))
+    run_validate_job(settings, work, CH, claude_runner=ok_claude())
+    mech = {c["name"]: c for c in _review(repo, rec["branch"])["mechanical"]}
+    assert mech["flag_conditions"]["status"] == "WARNING"
+    assert mech["flag_conditions"]["details"] == [
+        "C001 knowledge K900 when 'no_such_flag': 'no_such_flag' is not in flags/registry.yaml",
+        "C001 knowledge K900 when 'no_such_flag' never holds at end of ch-001",
+    ]

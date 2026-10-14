@@ -34,6 +34,10 @@
       "type": "string",
       "pattern": "^(?!not$)[a-z][a-z0-9_]{0,63}$"
     },
+    "flag_condition": {
+      "type": "string",
+      "pattern": "^(not )?(?!not$)[a-z][a-z0-9_]{0,63}$"
+    },
     "display_name": {
       "type": "string",
       "pattern": "^[^\\s@<\\-［「（][^\\s［「（]*$"
@@ -51,13 +55,24 @@
       },
       "required": ["chapter", "scene"]
     },
+    "conditional_position": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chapter": { "$ref": "#/$defs/chapter_id" },
+        "scene": { "$ref": "#/$defs/scene_id" },
+        "when": { "$ref": "#/$defs/flag_condition" }
+      },
+      "required": ["chapter", "scene"]
+    },
     "change": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "value": { "$ref": "#/$defs/nonempty_string" },
         "from": { "$ref": "#/$defs/position" },
-        "reason": { "$ref": "#/$defs/nonempty_string" }
+        "reason": { "$ref": "#/$defs/nonempty_string" },
+        "when": { "$ref": "#/$defs/flag_condition" }
       },
       "required": ["value", "from", "reason"]
     },

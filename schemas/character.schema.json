@@ -109,7 +109,8 @@
         "properties": {
           "id": { "$ref": "common.schema.json#/$defs/knowledge_id" },
           "fact": { "$ref": "common.schema.json#/$defs/nonempty_string" },
-          "source_chapter": { "$ref": "common.schema.json#/$defs/chapter_id" }
+          "source_chapter": { "$ref": "common.schema.json#/$defs/chapter_id" },
+          "when": { "$ref": "common.schema.json#/$defs/flag_condition" }
         },
         "required": ["id", "fact", "source_chapter"]
       }

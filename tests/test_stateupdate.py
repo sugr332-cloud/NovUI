@@ -861,23 +861,31 @@ def test_foreshadow_order_checked_for_noop_registry_patch(tmp_path: Path) -> Non
     assert _order_check(rec)["status"] == "PASS"
 
 
-# ---------- 2-E4：台本の形式で、分岐の中の場面の変化に WARNING ----------
+# ---------- 2-F3：台本の形式で、設定の条件 when の検査と分岐の説明（phase2f-design §5、§6） ----------
 
-def test_branch_scene_change_warning_for_script_work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_flag_conditions_for_script_work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings, work, _ = validated(tmp_path)
     monkeypatch.setattr("novui.stateupdate.read_text_format", lambda root: "script")
-    monkeypatch.setattr("novui.stateupdate.branch_only_scenes", lambda plan: frozenset({"S2"}))
-    rec = run_su(settings, work, good_su())
+    # S2 を分岐の場面とみなす（フラグの無い分岐なので条件なし）
+    monkeypatch.setattr("novui.flagcheck.branch_scenes", lambda plan: frozenset({"S2"}))
+    monkeypatch.setattr("novui.flagstate.branch_scenes", lambda plan: frozenset({"S2"}))
+    fake = good_su()
+    rec = run_su(settings, work, fake)
     assert rec["state"] == "WAITING_HUMAN"
-    found = [c for c in rec["checks"] if c["name"] == "branch_scene_change"]
+    found = [c for c in rec["checks"] if c["name"] == "flag_conditions"]
     # 人物の Patch（relationships の changes が S2 から）と registry の Patch（hints が S2）の両方
-    warned = [d for c in found if c["status"] == "WARNING" for d in c["details"][1:]]
-    assert "operations[1] /0/hints/- at S2" in warned
-    assert any("/relationships/0/changes/-" in d and d.endswith("at S2") for d in warned)
+    warned = [d for c in found if c["status"] == "WARNING" for d in c["details"]]
+    assert "F001 hints[0] at ch-001 S2 (branch scene) has no when" in warned
+    assert any("relationships.C002 changes" in d and d.endswith("(branch scene) has no when") for d in warned)
     assert pending_proposal(settings, work.work_key, CH) is not None
+    summary_prompt, patch_prompt = fake.calls[0]["prompt"], fake.calls[1]["prompt"]
+    assert "■ この章の分岐" in summary_prompt and "* S2：条件なし" in summary_prompt
+    assert '"when": "<条件>"' in patch_prompt and "{{" not in patch_prompt
 
 
-def test_no_branch_scene_check_for_novel_work(tmp_path: Path) -> None:
+def test_no_flag_check_for_novel_work(tmp_path: Path) -> None:
     settings, work, _ = validated(tmp_path)
-    rec = run_su(settings, work, good_su())
-    assert not [c for c in rec["checks"] if c["name"] == "branch_scene_change"]
+    fake = good_su()
+    rec = run_su(settings, work, fake)
+    assert not [c for c in rec["checks"] if c["name"] in ("flag_conditions", "branch_scene_change")]
+    assert all("この章の分岐" not in c["prompt"] for c in fake.calls)

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Collection, Iterable, Mapping, Sequence
 
 from novui.checks import CheckResult
+from novui.flagstate import START_STATES, FlagStates, State, condition_holds, holds_count, parse_condition
 from novui.positions import PositionError, chapter_index, compare_positions, format_position, position_key
 from novui.yamlio import dumps_yaml
 
@@ -21,6 +22,9 @@ FIXED_RULE_NAMES: tuple[str, ...] = (
 )
 
 _PER_CHARACTER_RULE_RE = re.compile(r"^(address|relationships)\.C[0-9]{3,}$")
+
+# 1つの値が依存してよいフラグの数（phase2f-design §3.2、決定 4）
+MAX_FLAGS_PER_VALUE = 2
 
 
 @dataclass(frozen=True)
@@ -52,16 +56,18 @@ def effective_value(
     pos: Mapping[str, Any],
     *,
     label: str,
+    state: State = frozenset(),
 ) -> tuple[str, list[str]]:
-    """Value in effect at pos: the change with the latest `from` at or before pos, else default.
+    """Value in effect at pos: the change with the latest `from` at or before pos whose `when` holds in state,
+    else default.
 
     Changes whose `from` cannot be compared are ignored with a warning. When two or more changes have the
-    same `from`, the later one in the list wins and a warning is returned.
+    same `from` and the same `when`, the later one in the list wins and a warning is returned.
     """
     pos_key = position_key(order, pos)
     warnings: list[str] = []
     best: tuple[tuple[int, int], str] | None = None
-    seen: dict[tuple[int, int], int] = {}
+    seen: dict[tuple[tuple[int, int], str | None], int] = {}
     for change in changes:
         start = change.get("from")
         try:
@@ -69,21 +75,69 @@ def effective_value(
         except PositionError as exc:
             warnings.append(f"{label} change from {_fmt(start)}: {exc}")
             continue
-        seen[key] = seen.get(key, 0) + 1
-        if seen[key] == 2:
-            warnings.append(f"{label} has multiple changes from {_fmt(start)}")
-        if key <= pos_key and (best is None or key >= best[0]):
+        when = change.get("when")
+        seen[(key, when)] = seen.get((key, when), 0) + 1
+        if seen[(key, when)] == 2:
+            warnings.append(f"{label} has multiple changes from {_fmt(start)}" + (f" when {when}" if when else ""))
+        if key <= pos_key and condition_holds(when, state) and (best is None or key >= best[0]):
             best = (key, change["value"])
     return (best[1] if best is not None else default), warnings
+
+
+def _listed(default: str, changes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The default and the changes as they are, for a value that cannot be shown per flag."""
+    return {"default": default, "changes": [dict(c) for c in changes]}
+
+
+def flag_value(
+    order: Sequence[str],
+    default: str,
+    changes: Sequence[Mapping[str, Any]],
+    pos: Mapping[str, Any],
+    states: Collection[State] | None,
+    *,
+    label: str,
+) -> tuple[Any, list[str]]:
+    """Value in effect at pos over the flag states of pos (phase2f-design §3.1).
+
+    A single value when every state gives the same value. Otherwise rows [{value, flags: {flag: bool}}] for
+    the flags the value depends on, at most MAX_FLAGS_PER_VALUE flags. With more flags, or when the states are
+    unknown (None), the default and the changes are listed as they are, with a warning.
+    """
+    if not any("when" in c for c in changes):
+        return effective_value(order, default, changes, pos, label=label)
+    if states is None:
+        return _listed(default, changes), [f"{label}: flag states at {_fmt(pos)} are unknown; changes are listed"]
+    warnings: list[str] = []
+    values: dict[State, str] = {}
+    for st in states:
+        values[st], w = effective_value(order, default, changes, pos, label=label, state=st)
+        warnings += w
+    if len(set(values.values())) <= 1:
+        return (next(iter(values.values())) if values else default), warnings
+    flags = sorted({parse_condition(c["when"])[0] for c in changes if "when" in c})
+    dep = [f for f in flags if any(f in st for st in states) and any(f not in st for st in states)]
+    if len(dep) > MAX_FLAGS_PER_VALUE:
+        warnings.append(
+            f"{label} depends on {len(dep)} flags at {_fmt(pos)} (limit {MAX_FLAGS_PER_VALUE}); changes are listed"
+        )
+        return _listed(default, changes), warnings
+    rows: dict[tuple[bool, ...], str] = {}
+    for st, value in values.items():
+        rows.setdefault(tuple(f in st for f in dep), value)
+    return [
+        {"value": rows[key], "flags": dict(zip(dep, key))} for key in sorted(rows)
+    ], warnings
 
 
 def character_table(
     order: Sequence[str],
     doc: Mapping[str, Any],
     pos: Mapping[str, Any],
+    states: Collection[State] | None = START_STATES,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Rule table of one character at one position. Only fields present in doc are output
-    (suspended_rules is always output)."""
+    """Rule table of one character at one position over the flag states of the position (None: unknown).
+    Only fields present in doc are output (suspended_rules is always output)."""
     cid = doc["id"]
     warnings: list[str] = []
     table: dict[str, Any] = {"character": cid, "name": doc["name"]}
@@ -102,18 +156,19 @@ def character_table(
             if isinstance(value, str):
                 address[target] = value
             else:
-                address[target], w = effective_value(
-                    order, value["default"], value.get("changes", []), pos, label=f"{cid} address.{target}"
+                address[target], w = flag_value(
+                    order, value["default"], value.get("changes", []), pos, states, label=f"{cid} address.{target}"
                 )
                 warnings += w
         if address:
             table["address"] = address
 
     if "relationships" in doc:
-        rels: list[dict[str, str]] = []
+        rels: list[dict[str, Any]] = []
         for rel in doc["relationships"]:
-            state, w = effective_value(
-                order, rel["state"], rel.get("changes", []), pos, label=f"{cid} relationships.{rel['with']}"
+            state, w = flag_value(
+                order, rel["state"], rel.get("changes", []), pos, states,
+                label=f"{cid} relationships.{rel['with']}",
             )
             warnings += w
             rels.append({"with": rel["with"], "state": state})
@@ -145,8 +200,18 @@ def character_table(
                     f"{cid} knowledge {k['id']} source_chapter {k['source_chapter']} not in chapters-order.yaml"
                 )
                 continue
-            if idx < current:
-                known.append({"id": k["id"], "fact": k["fact"], "source_chapter": k["source_chapter"]})
+            if idx >= current:
+                continue
+            entry = {"id": k["id"], "fact": k["fact"], "source_chapter": k["source_chapter"]}
+            when = k.get("when")
+            if when is not None:
+                # どの状態でも成り立つ条件は解き、どの状態でも成り立たない知識は載せない（phase2f-design §3.1）
+                held, total = holds_count(when, states) if states is not None else (0, -1)
+                if held == 0 and total > 0:
+                    continue
+                if held != total:
+                    entry["when"] = when
+            known.append(entry)
         table["knowledge"] = known
 
     for key in ("personality", "behavior"):
@@ -161,20 +226,23 @@ def scene_rule_tables(
     chapter_id: str,
     plan: Mapping[str, Any],
     characters: Mapping[str, Mapping[str, Any]],
+    flag_states: FlagStates | None = None,
 ) -> RuleTables:
-    """Rule tables for every scene of the plan, for the scene's characters that exist in characters/."""
+    """Rule tables for every scene of the plan, for the scene's characters that exist in characters/.
+    Without flag_states, no flag is set anywhere (a work without choices)."""
     if chapter_id not in order:
         return RuleTables(scenes=(), warnings=(f"chapter {chapter_id} not in chapters-order.yaml",))
     scenes: list[dict[str, Any]] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(flag_states.warnings) if flag_states is not None else []
     for scene in plan.get("scenes", []):
         pos = {"chapter": chapter_id, "scene": scene["id"]}
+        states = flag_states.states_at(chapter_id, scene["id"]) if flag_states is not None else START_STATES
         tables: list[dict[str, Any]] = []
         for cid in scene.get("characters", []):
             doc = characters.get(cid)
             if doc is None:
                 continue
-            table, w = character_table(order, doc, pos)
+            table, w = character_table(order, doc, pos, states)
             tables.append(table)
             warnings += w
         if tables:

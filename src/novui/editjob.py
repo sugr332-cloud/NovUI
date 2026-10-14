@@ -14,6 +14,7 @@ from novui.agy_output import splice_range
 from novui.anchor import AnchorError, find_anchor, split_by_range
 from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order
 from novui.charrules import render_rule_tables, scene_rule_tables
+from novui.flagstate import load_flag_states
 from novui.checks import (
     CheckResult,
     check_allowed_paths,
@@ -181,7 +182,9 @@ def build_range_edit_instruction(
     """AGY instruction of a range_edit from prompts/agy/range_edit.md (phase2d5-design §2.4)."""
     scene_plan = {**plan, "scenes": [s for s in plan["scenes"] if s["id"] == rng.scene_id]}
     inputs = load_mechanical_inputs(root)
-    rules = render_rule_tables(scene_rule_tables(read_chapters_order(root), chapter_id, scene_plan, inputs.characters))
+    order = read_chapters_order(root)
+    flag_states = load_flag_states(root, order, chapter_id=chapter_id, plan=plan)
+    rules = render_rule_tables(scene_rule_tables(order, chapter_id, scene_plan, inputs.characters, flag_states))
     format_rules = ""
     if read_text_format(root) == "script":
         format_rules = SCRIPT_RANGE_NOTE + "\n\n" + script_format_text() + "\n"

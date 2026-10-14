@@ -14,12 +14,14 @@ PATCH_VALUES = {
     "base_hash": "sha256:" + "0" * 64,
     "pointer_hints": "関係：C002 → /relationships/0",
     "next_knowledge_id": "K002",
+    "branch_notes": "",
 }
 UPDATE_VALUES = {
     "chapter_id": "ch-001",
     "scene_ids": "S1, S2",
     "character_ids": "C001, C002",
     "foreshadow_ids": "F001",
+    "branch_notes": "",
 }
 
 
@@ -86,3 +88,20 @@ def test_state_patch_prompt_conditions_are_on_the_allowed_change_bullets() -> No
     # the allowed forms themselves are unchanged
     assert '"/relationships/<添字>/changes/-"' in allowed and '"/address/C002/changes/-"' in allowed
     assert '"/knowledge/-"' in allowed
+
+
+# --- 2-F3：分岐の説明（phase2f-design §6） ---
+
+def test_branch_notes_render_and_sit_before_the_common_notes() -> None:
+    assert _placeholders("branch_notes_summary") == {"branch_scenes"}
+    assert _placeholders("branch_notes_patch") == {"branch_scenes", "chapter_id"}
+    scenes = "* S2：market_together\n* S3：not market_together"
+    notes = load_prompt_template("branch_notes_patch", branch_scenes=scenes, chapter_id="ch-001")
+    text = load_prompt_template("state_patch", **{**PATCH_VALUES, "branch_notes": notes})
+    assert "{{" not in text
+    assert text.index("■ 書いてよい変更") < text.index("■ この章の分岐") < text.index("■ 共通の注意")
+    assert '"scene": "S2", "when": "market_together"' in text
+    summary = load_prompt_template("branch_notes_summary", branch_scenes=scenes)
+    text = load_prompt_template("state_update", **{**UPDATE_VALUES, "branch_notes": summary})
+    assert text.index("■ この章の分岐") < text.index("summary 以外のものを出力してはいけません")
+    assert "branches" in text

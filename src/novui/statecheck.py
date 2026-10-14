@@ -20,6 +20,7 @@ _CHAR_ID_RE = re.compile(r"^C[0-9]{3,}$")
 _K_ID_RE = re.compile(r"^K[0-9]{3,}$")
 _K_NUM_RE = re.compile(r"^K([0-9]+)$")
 _INDEX_RE = re.compile(r"^(0|[1-9][0-9]*)$")
+_WHEN_RE = re.compile(r"^(not )?(?!not$)[a-z][a-z0-9_]{0,63}$")
 _ALLOWED_OPS = ("add", "replace", "test")
 _POSITION_LISTS = ("introduced", "hints", "developments")
 _REGISTRY_STATUSES = ("planned", "active", "resolved")
@@ -108,10 +109,17 @@ def _is_nonempty_str(v: Any) -> bool:
     return isinstance(v, str) and v != ""
 
 
+def _when_errors(v: Mapping[str, Any], label: str) -> list[str]:
+    """The optional condition `when` (phase2f-design §2.2)."""
+    if "when" in v and not (isinstance(v["when"], str) and _WHEN_RE.match(v["when"])):
+        return [f"{label}.when: must be a flag name or 'not ' followed by a flag name"]
+    return []
+
+
 def _position_errors(v: Any, chapter_id: str, scene_ids: Sequence[str], label: str) -> list[str]:
-    if not isinstance(v, dict) or set(v.keys()) != {"chapter", "scene"}:
-        return [f"{label}: must be an object with exactly chapter and scene"]
-    errs: list[str] = []
+    if not isinstance(v, dict) or set(v.keys()) - {"when"} != {"chapter", "scene"}:
+        return [f"{label}: must be an object with exactly chapter and scene (and an optional when)"]
+    errs: list[str] = _when_errors(v, label)
     if v["chapter"] != chapter_id:
         errs.append(f"{label}: chapter {v['chapter']!r} must be {chapter_id!r}")
     if v["scene"] not in scene_ids:
@@ -120,9 +128,9 @@ def _position_errors(v: Any, chapter_id: str, scene_ids: Sequence[str], label: s
 
 
 def _change_errors(v: Any, chapter_id: str, scene_ids: Sequence[str], label: str) -> list[str]:
-    if not isinstance(v, dict) or set(v.keys()) != {"value", "from", "reason"}:
-        return [f"{label}: must be an object with exactly value, from and reason"]
-    errs: list[str] = []
+    if not isinstance(v, dict) or set(v.keys()) - {"when"} != {"value", "from", "reason"}:
+        return [f"{label}: must be an object with exactly value, from and reason (and an optional when)"]
+    errs: list[str] = _when_errors(v, label)
     if not _is_nonempty_str(v["value"]):
         errs.append(f"{label}: value must be a non-empty string")
     if not _is_nonempty_str(v["reason"]):
@@ -162,9 +170,13 @@ def _policy_character(
         if name == "add":
             value = op.get("value")
             if toks == ["knowledge", "-"]:
-                if not isinstance(value, dict) or set(value.keys()) != {"id", "fact", "source_chapter"}:
-                    errs.append(f"{label}: knowledge value must be an object with exactly id, fact and source_chapter")
+                if not isinstance(value, dict) or set(value.keys()) - {"when"} != {"id", "fact", "source_chapter"}:
+                    errs.append(
+                        f"{label}: knowledge value must be an object with exactly id, fact and source_chapter"
+                        " (and an optional when)"
+                    )
                     continue
+                errs += _when_errors(value, f"{label}.value")
                 kid = value["id"]
                 if not isinstance(kid, str) or not _K_ID_RE.match(kid):
                     errs.append(f"{label}: knowledge id {kid!r} must be K followed by 3 or more digits")
@@ -393,32 +405,3 @@ def pointer_hints(target: str, doc_before: Any) -> str:
                 form = "文字列" if isinstance(val, str) else "object"
                 lines.append(f"呼び方：{partner} → /address/{partner}（{form}）")
     return "\n".join(lines) if lines else "なし"
-
-
-BRANCH_CHANGE_NOTE = (
-    "settings change in a scene that only some paths pass; until 2-F, settings per flag are not supported "
-    "(phase2e-design 5.3)"
-)
-
-
-def _scene_of(value: Any) -> str | None:
-    """Scene of a position {chapter, scene} or of a change {value, from: {chapter, scene}}."""
-    if isinstance(value, Mapping):
-        if isinstance(value.get("from"), Mapping):
-            value = value["from"]
-        if "chapter" in value and isinstance(value.get("scene"), str):
-            return value["scene"]
-    return None
-
-
-def check_branch_scene_changes(patch: Mapping[str, Any], *, branch_scenes: Collection[str]) -> CheckResult:
-    """'branch_scene_change' (WARNING): operations whose position (a change's from, or a registry position) is
-    a scene that only some paths of the chapter pass. Knowledge has no position and is not checked."""
-    found = [
-        f"operations[{i}] {op.get('path')} at {scene}"
-        for i, op in enumerate(patch.get("operations", []))
-        if op.get("op") in ("add", "replace")
-        and (scene := _scene_of(op.get("value"))) is not None
-        and scene in branch_scenes
-    ]
-    return _result("branch_scene_change", "WARNING", [BRANCH_CHANGE_NOTE] + found if found else [])

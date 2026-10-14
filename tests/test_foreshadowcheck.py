@@ -272,3 +272,17 @@ def test_new_order_issues_only_new() -> None:
     c = check_new_order_issues(ORDER, before, after)
     assert c.status == "WARNING"
     assert c.details == ("F002 hints[0] ch-001 S2 is before introduced ch-004 S1",)
+
+
+# --- 2-F2：伏線の位置の when（phase2f-design §4） ---
+
+def test_status_rows_keep_when_and_order_ignores_it() -> None:
+    item = F(introduced=[{**P("ch-001", "S2"), "when": "market_together"}],
+             hints=[{**P("ch-004", "S1"), "when": "market_together"}], planned_resolution=None)
+    validate_or_raise([item], "registry")
+    assert check_registry([item]) == []
+    row = foreshadow_status_rows(ORDER, [item], _plan(("S1", ["F001"])), "ch-008")[0]
+    assert row["introduced"] == [{"chapter": "ch-001", "scene": "S2", "when": "market_together"}]
+    assert row["last_hint"] == {"chapter": "ch-004", "scene": "S1", "when": "market_together"}
+    assert check_foreshadow_order(ORDER, [item]).status == "PASS"
+    assert check_foreshadow_positions(ORDER, [item]).status == "PASS"
