@@ -68,7 +68,7 @@
 * 範囲は anchor の `text` そのもの。`before`・`after` は照合のための文脈で、書き換えない。
 * 範囲に場面の区切りの行（`<!-- scene: … -->`）を含めてはいけない。範囲は1つの場面の中に収まること。満たさない場合は、Job を作らずにエラーにする（指定の誤りなので、Human が範囲を指定し直す）。
 * AGY の出力に場面の区切りの行があれば FAILED。
-* 差し込んだ後の本文に、draft と同じ機械検査を行う（`prepare_draft` の `extra_checks`）。draft で FAIL になる検査（場面の区切り、台本の形式の構文・流れ・フラグ）は、range_edit でも FAIL とする。文字数の範囲は WARNING として記録するだけにする（範囲の書き直しで章の文字数を守らせるのは無理があるため）。
+* 差し込んだ後の本文に、draft と同じ機械検査を行う（`prepare_draft` の `extra_checks`）。draft で FAIL になる検査（台本の形式の構文・流れ・フラグ）は、range_edit でも FAIL とする。それ以外（場面の区切り、文字数など）は draft と同じく WARNING として記録する。
 
 ### 2.4 AGY に渡すもの
 
@@ -106,7 +106,7 @@ draft の【要確認】は、本文に印を残したまま WAITING_HUMAN に�
 
 * 出力に【要確認】があれば、**draft.md は元に戻し**、requests.yaml の追記だけを commit して、Job を WAITING_HUMAN にする。
 * Human は `resolve-request` で判断を記録し、同じ編集をもう一度実行する（`edit-range` / `rewrite` に `--retry <job_id>` を付ける。範囲と指示は前の Job の記録から取る）。指示の最後に、その Job から出た要求への判断を、redraft と同じ文面で付ける。前の Job は CANCELLED（理由 `retried as <新しい Job>`）にする。
-* 2-D5 で range_edit について実装した。chapter_rewrite は 2-D6 で同じ扱いにする。
+* 2-D5 で range_edit、2-D6 で chapter_rewrite について実装した（`rewrite --retry <job_id>`）。判断を待つ編集 Job は、どちらも `cancel-job` で閉じられる。
 * 判断の済んでいない要求が残っている間は、validate・state_update に進めない（既存の規則のまま）。
 
 ---

@@ -8,13 +8,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from novui.agy_output import splice_range
 from novui.anchor import AnchorError, find_anchor, split_by_range
 from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order
 from novui.charrules import render_rule_tables, scene_rule_tables
-from novui.checks import CheckResult, check_allowed_paths, check_ignored_unchanged, check_prefix_suffix
+from novui.checks import (
+    CheckResult,
+    check_allowed_paths,
+    check_char_range,
+    check_ignored_unchanged,
+    check_prefix_suffix,
+)
 from novui.config import Settings
 from novui.container import run_container
 from novui.draftjob import DRAFT_MODEL_ROLE, DraftSpec, prepare_draft, read_plan, script_format_text
@@ -211,6 +217,178 @@ def _checks_dicts(checks: Sequence[CheckResult]) -> list[dict[str, Any]]:
     return [{"name": c.name, "status": c.status, "details": list(c.details)} for c in checks]
 
 
+EDIT_JOB_TYPES: tuple[str, ...] = ("range_edit", "chapter_rewrite")
+
+
+@dataclass(frozen=True)
+class _EditPlan:
+    """What one edit Job does: its instruction and how it writes the AGY output (None: wait for the Human)."""
+
+    instruction: str
+    edit: dict[str, Any]
+    write: Callable[[str], list[CheckResult]] | None  # 出力の本文を draft.md に書き、検査結果を返す
+    wait_reason: str | None
+    timeout_key: str
+
+
+def _load_retry(jdir: Path, retry_of: str | None, job_type: str, chapter_id: str) -> dict[str, Any] | None:
+    if retry_of is None:
+        return None
+    path = jdir / f"{retry_of}.yaml"
+    if not path.is_file():
+        raise ChapterError(f"job record not found: {retry_of}")
+    old = load_job_record(path)
+    if old["job_type"] != job_type or old["chapter_id"] != chapter_id:
+        raise ChapterError(f"{retry_of} is not a {job_type} of {chapter_id}")
+    if old["state"] != JobState.WAITING_HUMAN.name:
+        raise ChapterError(f"{retry_of} is {old['state']}, not WAITING_HUMAN")
+    return old
+
+
+def _full_reason(reason: str, target: EditTarget, old: Mapping[str, Any] | None) -> str:
+    """The reason, plus the Human decisions on the requests of the retried Job."""
+    text = reason.strip()
+    if old is not None:
+        decisions = decision_text(target.requests, old["job_id"])
+        if decisions:
+            text += "\n\n" + decisions
+    return text
+
+
+def _has_marker_line(text: str) -> bool:
+    return any(SCENE_MARKER_RE.match(line) or _MARKER_LIKE_RE.search(line) for line in text.splitlines())
+
+
+def _run_edit(
+    settings: Settings,
+    work: WorkInfo,
+    chapter_id: str,
+    *,
+    job_type: str,
+    reason: str,
+    retry_of: str | None,
+    instruction_id: str | None,
+    job_id: str | None,
+    run_lock: RunLock | None,
+    container_runner: ContainerRunner,
+    make_plan: Callable[[EditTarget, DraftSpec, str, dict[str, Any] | None], _EditPlan],
+) -> dict[str, Any]:
+    """Common lifecycle of range_edit and chapter_rewrite (phase2d5-design §2〜§4)."""
+    if not reason or not reason.strip():
+        raise ValueError("reason must not be empty")
+    jdir = jobs_dir(settings, work.work_key)
+    old = _load_retry(jdir, retry_of, job_type, chapter_id)
+    target = load_edit_target(settings, work, chapter_id, retry_of=retry_of)
+    if old is not None and old["branch"] != target.info.branch:
+        raise ChapterError(f"{retry_of} is on {old['branch']}, not on {target.info.branch}")
+    worktree = target.worktree
+    text = (worktree / _rel(chapter_id, "draft.md")).read_text(encoding="utf-8")
+    spec = prepare_draft(worktree, chapter_id, target.plan)
+    plan = make_plan(target, spec, text, old)  # 指定の誤りは、Job を作る前に ChapterError
+
+    actual_job_id = job_id or next_job_id(settings, work.work_key)
+    jdir.mkdir(parents=True, exist_ok=True)
+    lock = run_lock if run_lock is not None else RunLock()
+    if not lock.acquire(work.work_key, actual_job_id):
+        raise ChapterError(f"Run lock for work {work.work_key} is busy")
+    try:
+        record = new_job_record(actual_job_id, job_type, chapter_id=chapter_id)
+        record["branch"] = target.info.branch
+        record["worktree"] = str(worktree)
+        record["base_commit"] = head_commit(worktree, "HEAD")
+        record["instruction_id"] = instruction_id
+        record["edit"] = plan.edit
+        save_job_record(jdir, record)
+        if old is not None:
+            save_job_record(jdir, apply_transition(old, JobEvent.HUMAN_CANCEL, reason=f"retried as {actual_job_id}"))
+
+        if plan.write is None:
+            record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT, reason=plan.wait_reason)
+            save_job_record(jdir, record)
+            return record
+        try:
+            model = resolve_model(settings, DRAFT_MODEL_ROLE, work_key=work.work_key)
+        except ModelUnavailable as exc:
+            record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT, reason=f"model_unavailable: {exc}")
+            save_job_record(jdir, record)
+            return record
+        return _execute(settings, work, chapter_id, target, plan, record, jdir, model, container_runner)
+    finally:
+        lock.release(work.work_key, actual_job_id)
+
+
+def _execute(
+    settings: Settings,
+    work: WorkInfo,
+    chapter_id: str,
+    target: EditTarget,
+    plan: _EditPlan,
+    record: dict[str, Any],
+    jdir: Path,
+    model: str,
+    container_runner: ContainerRunner,
+) -> dict[str, Any]:
+    job_id, job_type = record["job_id"], record["job_type"]
+    worktree = target.worktree
+    assert plan.write is not None
+    try:
+        run = run_agy_in_worktree(
+            settings,
+            record=record,
+            jdir=jdir,
+            work_key=work.work_key,
+            worktree=worktree,
+            model=model,
+            context_paths=[e["path"] for e in target.draft_record["context"]],
+            instruction=plan.instruction,
+            timeout_key=plan.timeout_key,
+            container_runner=container_runner,
+        )
+        record = run.record
+        if run.stopped is not None:
+            return record
+        checks, parsed = run.checks, run.parsed
+        written: list[str] = []
+
+        if all(c.status == "PASS" for c in checks) and parsed is not None:
+            if parsed.markers:
+                # 【要確認】：本文は変えず、要求だけを追記する（phase2d5-design §4）
+                checks.append(append_requests(worktree, chapter_id, job_id, parsed.markers))
+                written.append(_rel(chapter_id, "requests.yaml"))
+            else:
+                written.append(_rel(chapter_id, "draft.md"))
+                checks.extend(plan.write(parsed.text))
+
+        checks.append(check_allowed_paths(get_changes(worktree), set(written)))
+        checks.append(check_ignored_unchanged(run.pre_ignored, get_ignored(worktree)))
+        record["checks"] = _checks_dicts(checks)
+        save_job_record(jdir, record)
+
+        if any(c.status == "FAIL" for c in checks):
+            _restore_paths(worktree, written)
+            record = apply_transition(record, JobEvent.CHECK_FAILED)
+            save_job_record(jdir, record)
+            return record
+
+        if parsed is not None and parsed.markers:
+            commit_all(worktree, f"{job_type} {chapter_id} requests by {job_id}",
+                       [("NovUI-Job", job_id)], name=settings.git_name, email=settings.git_email)
+            record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT,
+                                      reason=f"undefined_settings: {len(parsed.markers)}")
+            save_job_record(jdir, record)
+            return record
+
+        _mark_edited(target, chapter_id, job_id)
+        commit_all(worktree, f"{job_type} {chapter_id} by {job_id}",
+                   [("NovUI-Job", job_id)], name=settings.git_name, email=settings.git_email)
+        record = apply_transition(record, JobEvent.CHECK_PASSED, needs_validation=False)
+        save_job_record(jdir, record)
+        return record
+    except BaseException:
+        fail_unexpected(jdir, job_id)
+        raise
+
+
 def run_range_edit_job(
     settings: Settings,
     work: WorkInfo,
@@ -233,181 +411,94 @@ def run_range_edit_job(
     Human decisions on its requests; that Job is closed (CANCELLED, "retried as <job>").
     Raises ChapterError when the conditions are not met (no Job record is made).
     """
-    if not reason or not reason.strip():
-        raise ValueError("reason must not be empty")
     anchor = normalize_anchor(anchor)
-    jdir = jobs_dir(settings, work.work_key)
-    old: dict[str, Any] | None = None
-    if retry_of is not None:
-        old_path = jdir / f"{retry_of}.yaml"
-        if not old_path.is_file():
-            raise ChapterError(f"job record not found: {retry_of}")
-        old = load_job_record(old_path)
-        if old["job_type"] != "range_edit" or old["chapter_id"] != chapter_id:
-            raise ChapterError(f"{retry_of} is not a range_edit of {chapter_id}")
-        if old["state"] != JobState.WAITING_HUMAN.name:
-            raise ChapterError(f"{retry_of} is {old['state']}, not WAITING_HUMAN")
-    target = load_edit_target(settings, work, chapter_id, retry_of=retry_of)
-    if old is not None and old["branch"] != target.info.branch:
-        raise ChapterError(f"{retry_of} is on {old['branch']}, not on {target.info.branch}")
-    worktree = target.worktree
-    draft_rel = _rel(chapter_id, "draft.md")
-    text = (worktree / draft_rel).read_text(encoding="utf-8")
-    spec = prepare_draft(worktree, chapter_id, target.plan)
 
-    actual_job_id = job_id or next_job_id(settings, work.work_key)
-    jdir.mkdir(parents=True, exist_ok=True)
-    lock = run_lock if run_lock is not None else RunLock()
-    if not lock.acquire(work.work_key, actual_job_id):
-        raise ChapterError(f"Run lock for work {work.work_key} is busy")
-    try:
-        return _run_range_edit(
-            settings, work, chapter_id, target, old, spec, text,
-            anchor=anchor, reason=reason, source=source, instruction_id=instruction_id,
-            job_id=actual_job_id, jdir=jdir, container_runner=container_runner,
+    def make_plan(target: EditTarget, spec: DraftSpec, text: str, old: dict[str, Any] | None) -> _EditPlan:
+        # 範囲の誤り（区切りを含む、場面の外）は ChapterError。一致の件数の誤りは WAITING_HUMAN（§13.5）
+        edit = {"anchor": dict(anchor), "reason": reason.strip(), "source": dict(source), "range_bytes": None}
+        try:
+            rng = locate_range(text, anchor)
+        except AnchorError as exc:
+            return _EditPlan("", edit, None, f"anchor_not_unique: {exc.count}", "agy_range_edit")
+        edit["range_bytes"] = [rng.start, rng.end]
+        instruction = build_range_edit_instruction(
+            target.worktree, chapter_id, target.plan, rng, _full_reason(reason, target, old)
         )
-    finally:
-        lock.release(work.work_key, actual_job_id)
+        draft_path = target.worktree / _rel(chapter_id, "draft.md")
+
+        def write(out: str) -> list[CheckResult]:
+            if _has_marker_line(out):
+                return [CheckResult(name="range_scene_marker", status="FAIL",
+                                    details=("the replacement contains a scene marker line",))]
+            data = draft_path.read_bytes()
+            prefix, suffix = split_by_range(data, rng.start, rng.end)
+            new_data = splice_range(prefix, data[rng.start:rng.end], out, suffix)
+            draft_path.write_bytes(new_data)
+            return [check_prefix_suffix(new_data, prefix, suffix), *spec.extra_checks(new_data.decode("utf-8"))]
+
+        return _EditPlan(instruction, edit, write, None, "agy_range_edit")
+
+    return _run_edit(
+        settings, work, chapter_id, job_type="range_edit", reason=reason, retry_of=retry_of,
+        instruction_id=instruction_id, job_id=job_id, run_lock=run_lock, container_runner=container_runner,
+        make_plan=make_plan,
+    )
 
 
-def _run_range_edit(
+def build_rewrite_instruction(spec: DraftSpec, current_text: str, reason: str) -> str:
+    """AGY instruction of a chapter_rewrite: the draft instruction + prompts/agy/chapter_rewrite.md (§3)."""
+    section = load_prompt_template(
+        "chapter_rewrite", group="agy", reason=reason, current_text=current_text.rstrip("\n")
+    ).rstrip("\n")
+    return spec.instruction + "\n\n" + section
+
+
+def run_chapter_rewrite_job(
     settings: Settings,
     work: WorkInfo,
     chapter_id: str,
-    target: EditTarget,
-    old: dict[str, Any] | None,
-    spec: DraftSpec,
-    text: str,
     *,
-    anchor: Mapping[str, Any],
     reason: str,
     source: Mapping[str, Any],
-    instruction_id: str | None,
-    job_id: str,
-    jdir: Path,
-    container_runner: ContainerRunner,
+    instruction_id: str | None = None,
+    retry_of: str | None = None,
+    job_id: str | None = None,
+    run_lock: RunLock | None = None,
+    container_runner: ContainerRunner = run_container,
 ) -> dict[str, Any]:
-    actual_job_id = job_id
-    worktree = target.worktree
-    draft_rel = _rel(chapter_id, "draft.md")
-    # 範囲の誤り（区切りを含む、場面の外）は Job を作らずに ChapterError。一致の件数の誤りは WAITING_HUMAN（§13.5）
-    rng: EditRange | None = None
-    anchor_error: AnchorError | None = None
-    try:
-        rng = locate_range(text, anchor)
-    except AnchorError as exc:
-        anchor_error = exc
-    instruction = ""
-    if rng is not None:
-        full_reason = reason.strip()
-        if old is not None:
-            decisions = decision_text(target.requests, old["job_id"])
-            if decisions:
-                full_reason += "\n\n" + decisions
-        instruction = build_range_edit_instruction(worktree, chapter_id, target.plan, rng, full_reason)
+    """Run a chapter_rewrite Job on the chapter's job branch (phase2d5-design §3): AGY writes the whole chapter again
+    from the current text and the reason, under the same plan. Outcomes are those of run_range_edit_job; the checks
+    are those of a draft Job."""
 
-    record = new_job_record(actual_job_id, "range_edit", chapter_id=chapter_id)
-    record["branch"] = target.info.branch
-    record["worktree"] = str(worktree)
-    record["base_commit"] = head_commit(worktree, "HEAD")
-    record["instruction_id"] = instruction_id
-    record["edit"] = {
-        "anchor": dict(anchor),
-        "reason": reason.strip(),
-        "source": dict(source),
-        "range_bytes": [rng.start, rng.end] if rng is not None else None,
-    }
-    save_job_record(jdir, record)
-    if old is not None:
-        save_job_record(jdir, apply_transition(old, JobEvent.HUMAN_CANCEL, reason=f"retried as {actual_job_id}"))
+    def make_plan(target: EditTarget, spec: DraftSpec, text: str, old: dict[str, Any] | None) -> _EditPlan:
+        edit = {"anchor": None, "reason": reason.strip(), "source": dict(source), "range_bytes": None}
+        instruction = build_rewrite_instruction(spec, text, _full_reason(reason, target, old))
+        draft_path = target.worktree / _rel(chapter_id, "draft.md")
 
-    if rng is None:
-        assert anchor_error is not None
-        record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT, reason=f"anchor_not_unique: {anchor_error.count}")
-        save_job_record(jdir, record)
-        return record
+        def write(out: str) -> list[CheckResult]:
+            draft_path.write_text(out, encoding="utf-8")
+            checks: list[CheckResult] = []
+            if spec.target_chars is not None:
+                checks.append(check_char_range(out, *spec.target_chars))
+            return checks + list(spec.extra_checks(out))
 
-    try:
-        model = resolve_model(settings, DRAFT_MODEL_ROLE, work_key=work.work_key)
-    except ModelUnavailable as exc:
-        record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT, reason=f"model_unavailable: {exc}")
-        save_job_record(jdir, record)
-        return record
+        return _EditPlan(instruction, edit, write, None, "agy_draft")
 
-    try:
-        run = run_agy_in_worktree(
-            settings,
-            record=record,
-            jdir=jdir,
-            work_key=work.work_key,
-            worktree=worktree,
-            model=model,
-            context_paths=[e["path"] for e in target.draft_record["context"]],
-            instruction=instruction,
-            timeout_key="agy_range_edit",
-            container_runner=container_runner,
-        )
-        record = run.record
-        if run.stopped is not None:
-            return record
-        checks, parsed = run.checks, run.parsed
-        written: list[str] = []
-
-        if all(c.status == "PASS" for c in checks) and parsed is not None:
-            if any(SCENE_MARKER_RE.match(line) or _MARKER_LIKE_RE.search(line) for line in parsed.text.splitlines()):
-                checks.append(CheckResult(name="range_scene_marker", status="FAIL",
-                                          details=("the replacement contains a scene marker line",)))
-            elif parsed.markers:
-                # 【要確認】：本文は変えず、要求だけを追記する（phase2d5-design §4）
-                checks.append(append_requests(worktree, chapter_id, actual_job_id, parsed.markers))
-                written.append(_rel(chapter_id, "requests.yaml"))
-            else:
-                data = (worktree / draft_rel).read_bytes()
-                prefix, suffix = split_by_range(data, rng.start, rng.end)
-                new_data = splice_range(prefix, data[rng.start:rng.end], parsed.text, suffix)
-                (worktree / draft_rel).write_bytes(new_data)
-                written.append(draft_rel)
-                checks.append(check_prefix_suffix(new_data, prefix, suffix))
-                checks.extend(spec.extra_checks(new_data.decode("utf-8")))
-
-        checks.append(check_allowed_paths(get_changes(worktree), set(written)))
-        checks.append(check_ignored_unchanged(run.pre_ignored, get_ignored(worktree)))
-        record["checks"] = _checks_dicts(checks)
-        save_job_record(jdir, record)
-
-        if any(c.status == "FAIL" for c in checks):
-            _restore_paths(worktree, written)
-            record = apply_transition(record, JobEvent.CHECK_FAILED)
-            save_job_record(jdir, record)
-            return record
-
-        if parsed is not None and parsed.markers:
-            commit_all(worktree, f"range_edit {chapter_id} requests by {actual_job_id}",
-                       [("NovUI-Job", actual_job_id)], name=settings.git_name, email=settings.git_email)
-            record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT,
-                                      reason=f"undefined_settings: {len(parsed.markers)}")
-            save_job_record(jdir, record)
-            return record
-
-        _mark_edited(target, chapter_id, actual_job_id)
-        commit_all(worktree, f"range_edit {chapter_id} by {actual_job_id}",
-                   [("NovUI-Job", actual_job_id)], name=settings.git_name, email=settings.git_email)
-        record = apply_transition(record, JobEvent.CHECK_PASSED, needs_validation=False)
-        save_job_record(jdir, record)
-        return record
-    except BaseException:
-        fail_unexpected(jdir, actual_job_id)
-        raise
+    return _run_edit(
+        settings, work, chapter_id, job_type="chapter_rewrite", reason=reason, retry_of=retry_of,
+        instruction_id=instruction_id, job_id=job_id, run_lock=run_lock, container_runner=container_runner,
+        make_plan=make_plan,
+    )
 
 
 def cancel_edit_job(settings: Settings, work: WorkInfo, job_id: str, reason: str = "cancelled by Human") -> dict[str, Any]:
-    """Close a WAITING_HUMAN range_edit Job (CANCELLED). Its requests stay in requests.yaml and still need decisions."""
+    """Close a WAITING_HUMAN edit Job (CANCELLED). Its requests stay in requests.yaml and still need decisions."""
     path = jobs_dir(settings, work.work_key) / f"{job_id}.yaml"
     if not path.is_file():
         raise ChapterError(f"job record not found: {job_id}")
     record = load_job_record(path)
-    if record["job_type"] != "range_edit":
-        raise ChapterError(f"{job_id} is a {record['job_type']} Job; only range_edit Jobs are cancelled here")
+    if record["job_type"] not in EDIT_JOB_TYPES:
+        raise ChapterError(f"{job_id} is a {record['job_type']} Job; only edit Jobs (range_edit, chapter_rewrite) are cancelled here")
     if record["state"] != JobState.WAITING_HUMAN.name:
         raise ChapterError(f"{job_id} is {record['state']}, not WAITING_HUMAN")
     record = apply_transition(record, JobEvent.HUMAN_CANCEL, reason=reason)

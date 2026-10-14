@@ -18,7 +18,7 @@ from novui.claudejob import ClaudeRunner
 from novui.config import Settings, load_settings
 from novui.container import run_container
 from novui.draftjob import run_chapter_draft_job
-from novui.editjob import cancel_edit_job, run_range_edit_job
+from novui.editjob import EDIT_JOB_TYPES, cancel_edit_job, run_chapter_rewrite_job, run_range_edit_job
 from novui.export import export_chapter, write_export
 from novui.finalize import discard_cycle, final_approve, waiting_jobs_on_branch
 from novui.jobrecord import load_job_record
@@ -149,10 +149,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p_er.add_argument("--reason", default=None, help="How to rewrite the range")
     p_er.add_argument("--retry", default=None, help="Run a WAITING_HUMAN range_edit Job again (same range and reason)")
 
+    # rewrite --work <key> --chapter <id> --reason <text> | --retry <job_id>
+    p_rw = subparsers.add_parser("rewrite")
+    p_rw.add_argument("--work", required=True, help="Novel work key")
+    p_rw.add_argument("--chapter", required=True, help="Chapter ID")
+    p_rw.add_argument("--reason", default=None, help="How to rewrite the chapter")
+    p_rw.add_argument("--retry", default=None, help="Run a WAITING_HUMAN chapter_rewrite Job again (same reason)")
+
     # cancel-job --work <key> --job <job_id>
     p_cj = subparsers.add_parser("cancel-job")
     p_cj.add_argument("--work", required=True, help="Novel work key")
-    p_cj.add_argument("--job", required=True, help="WAITING_HUMAN range_edit Job ID")
+    p_cj.add_argument("--job", required=True, help="WAITING_HUMAN range_edit / chapter_rewrite Job ID")
 
     # discard --work <key> --chapter <id> [--force]
     p_dc = subparsers.add_parser("discard")
@@ -274,11 +281,11 @@ def _unresolved_after(record: dict[str, Any], chapter_id: str) -> list[int]:
     return unresolved_requests(load_yaml(path)) if path.is_file() else []
 
 
-def _waiting_edit_job(settings: Settings, work: Any, record: dict[str, Any]) -> str | None:
-    """The WAITING_HUMAN range_edit Job on the branch of record, if any."""
+def _waiting_edit_job(settings: Settings, work: Any, record: dict[str, Any]) -> tuple[str, str] | None:
+    """(job ID, job type) of the WAITING_HUMAN edit Job on the branch of record, if any."""
     for rec in waiting_jobs_on_branch(settings, work, record["branch"]):
-        if rec["job_type"] == "range_edit":
-            return str(rec["job_id"])
+        if rec["job_type"] in EDIT_JOB_TYPES:
+            return str(rec["job_id"]), str(rec["job_type"])
     return None
 
 
@@ -394,8 +401,9 @@ def main(
             if not remaining:
                 waiting_edit = _waiting_edit_job(cfg, work, record)
                 if waiting_edit is not None:
-                    print(f"All requests are resolved: run edit-range --retry {waiting_edit} "
-                          "to rewrite the range again with these decisions.")
+                    command = "edit-range" if waiting_edit[1] == "range_edit" else "rewrite"
+                    print(f"All requests are resolved: run {command} --retry {waiting_edit[0]} "
+                          "to run the edit again with these decisions.")
                 else:
                     print("All requests are resolved: run redraft to write the chapter again with these decisions.")
             return 0
@@ -425,6 +433,25 @@ def main(
                 reason, source = args.reason, {"kind": "human"}
             record = run_range_edit_job(
                 cfg, work, args.chapter, anchor=anchor, reason=reason, source=source, retry_of=args.retry,
+                run_lock=RunLock(), container_runner=container_runner,
+            )
+            return _report_job(record)
+
+        elif args.subcommand == "rewrite":
+            work = get_work(cfg, args.work)
+            if args.retry is not None:
+                if args.reason is not None:
+                    raise ValueError("--retry takes the reason from the Job; omit --reason")
+                old = load_job_record(jobs_dir(cfg, work.work_key) / f"{args.retry}.yaml")
+                if old["job_type"] != "chapter_rewrite" or not old.get("edit"):
+                    raise ValueError(f"{args.retry} is not a chapter_rewrite Job")
+                reason, source = old["edit"]["reason"], old["edit"]["source"]
+            else:
+                if args.reason is None:
+                    raise ValueError("--reason is required (or --retry <job_id>)")
+                reason, source = args.reason, {"kind": "human"}
+            record = run_chapter_rewrite_job(
+                cfg, work, args.chapter, reason=reason, source=source, retry_of=args.retry,
                 run_lock=RunLock(), container_runner=container_runner,
             )
             return _report_job(record)

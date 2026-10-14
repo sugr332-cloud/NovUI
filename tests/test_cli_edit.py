@@ -63,7 +63,7 @@ def test_edit_range_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert main(["cancel-job", "--work", KEY, "--job", again], settings=settings) == 1
     assert "not WAITING_HUMAN" in capsys.readouterr().err
     assert main(["cancel-job", "--work", KEY, "--job", rec["job_id"]], settings=settings) == 1
-    assert "only range_edit Jobs" in capsys.readouterr().err
+    assert "only edit Jobs" in capsys.readouterr().err
     rc = main(_args("edit-range", "--anchor", "カイは", "--after", "理由", "--reason", "短く"), settings=settings,
               container_runner=CaptureAgy("カイは"))
     assert rc == 0, capsys.readouterr()
@@ -96,3 +96,21 @@ def test_edit_range_cli_success_and_marker_hint(tmp_path: Path, capsys: pytest.C
 
     assert main(_args("show"), settings=settings) == 0
     assert "chapter state on the branch: DRAFTED" in capsys.readouterr().out
+
+
+def test_rewrite_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    settings, work, rec = drafted(tmp_path)
+    capsys.readouterr()
+    assert main(_args("rewrite"), settings=settings) == 1
+    assert "--reason is required" in capsys.readouterr().err
+    marked = GOOD_TEXT.replace("門番が", "【要確認：門番の態度】門番が")
+    assert main(_args("rewrite", "--reason", "テンポを上げる"), settings=settings,
+                container_runner=CaptureAgy(marked)) == 3
+    first = capsys.readouterr().out.split("Job ", 1)[1].split(" ", 1)[0]
+    assert main(_args("resolve-request", "--index", "0", "--decision", "黙る"), settings=settings) == 0
+    assert f"run rewrite --retry {first}" in capsys.readouterr().out
+    assert main(_args("rewrite", "--retry", first, "--reason", "x"), settings=settings) == 1
+    assert "omit --reason" in capsys.readouterr().err
+    agy = CaptureAgy(GOOD_TEXT)
+    assert main(_args("rewrite", "--retry", first), settings=settings, container_runner=agy) == 0
+    assert "テンポを上げる" in agy.prompt() and "黙る" in agy.prompt()

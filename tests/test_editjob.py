@@ -15,7 +15,7 @@ from test_validatejob import CH, GOOD_TEXT, drafted, ok_claude  # noqa: E402
 from novui.anchor import AnchorError
 from novui.chapters import ChapterError, read_chapter_meta
 from novui.draftjob import run_chapter_draft_job
-from novui.editjob import CONTEXT_CHARS, locate_range, run_range_edit_job
+from novui.editjob import CONTEXT_CHARS, cancel_edit_job, locate_range, run_chapter_rewrite_job, run_range_edit_job
 from novui.gitinspect import get_changes, run_git
 from novui.jobrecord import load_job_record
 from novui.jobrunner import jobs_dir
@@ -293,3 +293,110 @@ def test_script_range_edit_syntax_error_fails(tmp_path: Path) -> None:
     assert _checks(rec)["script_syntax"]["status"] == "FAIL"
     assert head_commit(_wt(draft_rec), "HEAD") == head0
     assert get_changes(_wt(draft_rec)) == []
+
+
+# ---------- chapter_rewrite ----------
+
+REWRITTEN = (
+    "<!-- scene: S1 -->\n"
+    "カイは港町ミナトに着いた。門番は紋章を見て、黙って道をあけた。\n"
+    "\n"
+    "<!-- scene: S2 -->\n"
+    "カイは理由が分からないまま、門を通った。\n"
+)
+
+
+def _rewrite(settings: Any, work: Any, agy: Any, **kw: Any) -> dict[str, Any]:
+    args: dict[str, Any] = {"reason": "門番の反応をはっきりさせる", "source": HUMAN}
+    args.update(kw)
+    return run_chapter_rewrite_job(settings, work, CH, container_runner=agy, **args)
+
+
+def test_chapter_rewrite_success(tmp_path: Path) -> None:
+    settings, work, draft_rec = drafted(tmp_path)
+    wt = _wt(draft_rec)
+    head0 = head_commit(wt, "HEAD")
+    agy = CaptureAgy(REWRITTEN)
+    rec = _rewrite(settings, work, agy)
+    assert rec["state"] == "COMPLETED", rec["checks"]
+    assert rec["job_type"] == "chapter_rewrite"
+    assert rec["edit"] == {"anchor": None, "reason": "門番の反応をはっきりさせる", "source": HUMAN, "range_bytes": None}
+    assert rec["context"] == draft_rec["context"]
+    assert (wt / DRAFT).read_text(encoding="utf-8") == REWRITTEN
+    meta = read_chapter_meta(wt, CH)
+    assert meta["state"] == "DRAFTED" and meta["last_job"] == rec["job_id"]
+    assert run_git(wt, "rev-list", "--count", f"{head0}..HEAD").decode().strip() == "1"
+    assert run_git(wt, "log", "-1", "--format=%s").decode().strip() == f"chapter_rewrite {CH} by {rec['job_id']}"
+    checks = _checks(rec)
+    assert checks["char_count"]["status"] == "PASS" and checks["scene_markers"]["status"] == "PASS"
+
+    prompt = agy.prompt()
+    assert f"章 {CH} の本文を書いてください" in prompt  # the draft instruction
+    assert "【章の書き直し】" in prompt and "門番の反応をはっきりさせる" in prompt
+    assert "今の本文：\n\n```text\n" + GOOD_TEXT.rstrip("\n") + "\n```" in prompt
+    assert "{{" not in prompt
+
+
+def test_chapter_rewrite_checks_like_draft(tmp_path: Path) -> None:
+    settings, work, draft_rec = drafted(tmp_path)
+    wt = _wt(draft_rec)
+    head0 = head_commit(wt, "HEAD")
+    # a missing scene marker is a WARNING, as in a draft Job
+    rec = _rewrite(settings, work, CaptureAgy(REWRITTEN.replace("<!-- scene: S2 -->\n", "")))
+    assert rec["state"] == "COMPLETED"
+    assert _checks(rec)["scene_markers"]["status"] == "WARNING"
+    # an empty output fails and changes nothing
+    head1 = head_commit(wt, "HEAD")
+    bad = _rewrite(settings, work, CaptureAgy(""))
+    assert bad["state"] == "FAILED" and _checks(bad)["agy_output"]["status"] == "FAIL"
+    assert head_commit(wt, "HEAD") == head1 != head0 and get_changes(wt) == []
+
+
+def test_chapter_rewrite_char_range_is_warning(tmp_path: Path) -> None:
+    settings, work, _ = drafted(tmp_path)
+    long = REWRITTEN.replace("門を通った。", "門を通った。" + "あ" * 300)
+    rec = _rewrite(settings, work, CaptureAgy(long))
+    assert rec["state"] == "COMPLETED"
+    assert _checks(rec)["char_count"]["status"] == "WARNING"
+
+
+def test_chapter_rewrite_marker_and_retry(tmp_path: Path) -> None:
+    settings, work, draft_rec = drafted(tmp_path)
+    wt = _wt(draft_rec)
+    first = _rewrite(settings, work, CaptureAgy(REWRITTEN.replace("黙って", "【要確認：門番の態度】")))
+    assert first["state"] == "WAITING_HUMAN"
+    assert (wt / DRAFT).read_text(encoding="utf-8") == GOOD_TEXT
+    resolve_request(settings, work, CH, 0, "黙って道をあける")
+    # a range_edit cannot retry a chapter_rewrite
+    with pytest.raises(ChapterError, match="not a range_edit"):
+        _edit(settings, work, CaptureAgy(NEW), retry_of=first["job_id"])
+    agy = CaptureAgy(REWRITTEN)
+    second = _rewrite(settings, work, agy, retry_of=first["job_id"])
+    assert second["state"] == "COMPLETED"
+    assert "* 確認事項：門番の態度\n  判断：黙って道をあける" in agy.prompt()
+    old = load_job_record(jobs_dir(settings, work.work_key) / f"{first['job_id']}.yaml")
+    assert old["state"] == "CANCELLED"
+
+
+def test_cancel_edit_job(tmp_path: Path) -> None:
+    settings, work, draft_rec = drafted(tmp_path)
+    waiting = _rewrite(settings, work, CaptureAgy(REWRITTEN.replace("黙って", "【要確認：門番の態度】")))
+    rec = cancel_edit_job(settings, work, waiting["job_id"])
+    assert rec["state"] == "CANCELLED" and rec["history"][-1]["reason"] == "cancelled by Human"
+    with pytest.raises(ChapterError, match="not WAITING_HUMAN"):
+        cancel_edit_job(settings, work, waiting["job_id"])
+    with pytest.raises(ChapterError, match="only edit Jobs"):
+        cancel_edit_job(settings, work, draft_rec["job_id"])
+    # its request still needs a decision before the next edit
+    with pytest.raises(ChapterError, match="not resolved"):
+        _rewrite(settings, work, CaptureAgy(REWRITTEN))
+
+
+def test_script_chapter_rewrite(tmp_path: Path) -> None:
+    settings, work, draft_rec = _script_drafted(tmp_path)
+    agy = CaptureAgy(SCRIPT_TEXT.replace("カイ「わけが分からない」", "カイ［happy］「通れた」"))
+    rec = _rewrite(settings, work, agy)
+    assert rec["state"] == "COMPLETED", rec["checks"]
+    assert "ノベルゲームの台本の形式で書いてください" in agy.prompt()
+    bad = _rewrite(settings, work, CaptureAgy(SCRIPT_TEXT.replace("- 引き返す -> S2\n", "- 戻る -> S2\n")))
+    assert bad["state"] == "FAILED" and _checks(bad)["script_flow"]["status"] == "FAIL"
