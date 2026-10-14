@@ -18,8 +18,9 @@ from novui.claudejob import ClaudeRunner
 from novui.config import Settings, load_settings
 from novui.container import run_container
 from novui.draftjob import run_chapter_draft_job
+from novui.editjob import cancel_edit_job, run_range_edit_job
 from novui.export import export_chapter, write_export
-from novui.finalize import discard_cycle, final_approve
+from novui.finalize import discard_cycle, final_approve, waiting_jobs_on_branch
 from novui.jobrecord import load_job_record
 from novui.jobrunner import ContainerRunner, jobs_dir
 from novui.models import (
@@ -136,6 +137,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rd = subparsers.add_parser("redraft")
     p_rd.add_argument("--work", required=True, help="Novel work key")
     p_rd.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # edit-range --work <key> --chapter <id> --anchor <text> [--before <text>] [--after <text>] --reason <text>
+    #            [--retry <job_id>]
+    p_er = subparsers.add_parser("edit-range")
+    p_er.add_argument("--work", required=True, help="Novel work key")
+    p_er.add_argument("--chapter", required=True, help="Chapter ID")
+    p_er.add_argument("--anchor", default=None, help="Text of the range to rewrite (must match exactly once)")
+    p_er.add_argument("--before", default="", help="Text just before the range (to make the match unique)")
+    p_er.add_argument("--after", default="", help="Text just after the range (to make the match unique)")
+    p_er.add_argument("--reason", default=None, help="How to rewrite the range")
+    p_er.add_argument("--retry", default=None, help="Run a WAITING_HUMAN range_edit Job again (same range and reason)")
+
+    # cancel-job --work <key> --job <job_id>
+    p_cj = subparsers.add_parser("cancel-job")
+    p_cj.add_argument("--work", required=True, help="Novel work key")
+    p_cj.add_argument("--job", required=True, help="WAITING_HUMAN range_edit Job ID")
 
     # discard --work <key> --chapter <id> [--force]
     p_dc = subparsers.add_parser("discard")
@@ -257,6 +274,14 @@ def _unresolved_after(record: dict[str, Any], chapter_id: str) -> list[int]:
     return unresolved_requests(load_yaml(path)) if path.is_file() else []
 
 
+def _waiting_edit_job(settings: Settings, work: Any, record: dict[str, Any]) -> str | None:
+    """The WAITING_HUMAN range_edit Job on the branch of record, if any."""
+    for rec in waiting_jobs_on_branch(settings, work, record["branch"]):
+        if rec["job_type"] == "range_edit":
+            return str(rec["job_id"])
+    return None
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -367,7 +392,12 @@ def main(
             remaining = _unresolved_after(record, args.chapter)
             print(f"Request {args.index} resolved; {len(remaining)} unresolved")
             if not remaining:
-                print("All requests are resolved: run redraft to write the chapter again with these decisions.")
+                waiting_edit = _waiting_edit_job(cfg, work, record)
+                if waiting_edit is not None:
+                    print(f"All requests are resolved: run edit-range --retry {waiting_edit} "
+                          "to rewrite the range again with these decisions.")
+                else:
+                    print("All requests are resolved: run redraft to write the chapter again with these decisions.")
             return 0
 
         elif args.subcommand == "redraft":
@@ -378,6 +408,32 @@ def main(
                 "To keep them for later chapters, edit the setting files directly."
             )
             return _report_job(record)
+
+        elif args.subcommand == "edit-range":
+            work = get_work(cfg, args.work)
+            if args.retry is not None:
+                if args.anchor is not None or args.reason is not None:
+                    raise ValueError("--retry takes the range and the reason from the Job; omit --anchor and --reason")
+                old = load_job_record(jobs_dir(cfg, work.work_key) / f"{args.retry}.yaml")
+                if not old.get("edit"):
+                    raise ValueError(f"{args.retry} is not a range_edit Job")
+                anchor, reason, source = old["edit"]["anchor"], old["edit"]["reason"], old["edit"]["source"]
+            else:
+                if args.anchor is None or args.reason is None:
+                    raise ValueError("--anchor and --reason are required (or --retry <job_id>)")
+                anchor = {"text": args.anchor, "before": args.before, "after": args.after}
+                reason, source = args.reason, {"kind": "human"}
+            record = run_range_edit_job(
+                cfg, work, args.chapter, anchor=anchor, reason=reason, source=source, retry_of=args.retry,
+                run_lock=RunLock(), container_runner=container_runner,
+            )
+            return _report_job(record)
+
+        elif args.subcommand == "cancel-job":
+            work = get_work(cfg, args.work)
+            record = cancel_edit_job(cfg, work, args.job)
+            print(f"Job {record['job_id']} finished with state: {record['state']}")
+            return 0
 
         elif args.subcommand == "discard":
             work = get_work(cfg, args.work)

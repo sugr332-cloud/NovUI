@@ -161,6 +161,11 @@ def extras_text(plan: Mapping[str, Any]) -> str:
     return "\n".join(lines) if lines else "なし"
 
 
+def script_format_text() -> str:
+    """{{script_format}}: the line kinds of the script format (prompts/agy/script_format.md), shared by AGY prompts."""
+    return load_prompt_template("script_format", group="agy").rstrip("\n")
+
+
 def build_script_draft_instruction(chapter_id: str, plan: dict[str, Any], *, character_rules: str) -> str:
     """Build AGY instruction text for a script-format work from prompts/agy/draft_script.md."""
     scene_ids = [s["id"] for s in plan["scenes"]]
@@ -170,6 +175,7 @@ def build_script_draft_instruction(chapter_id: str, plan: dict[str, Any], *, cha
         chapter_id=chapter_id,
         scene_ids="、".join(scene_ids),
         scene_count=str(len(scene_ids)),
+        script_format=script_format_text(),
         scene_flow=scene_flow_text(plan),
         extras=extras_text(plan),
         min_chars=str(plan["target_chars"]["min"]),

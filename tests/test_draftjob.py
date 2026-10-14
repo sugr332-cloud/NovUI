@@ -41,7 +41,7 @@ def _make_settings(tmp_path: Path) -> Settings:
         jobhome_root=data_dir / "jobhomes",
         agy_image="test:img",
         agy_token_path=token_path,
-        timeouts={"agy_draft": 300, "claude": 300},
+        timeouts={"agy_draft": 300, "agy_range_edit": 300, "claude": 300},
         git_name="Tester",
         git_email="tester@novui.local",
     )

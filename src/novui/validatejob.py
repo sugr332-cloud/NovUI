@@ -230,6 +230,17 @@ def _write_and_commit(
         raise
 
 
+def _review_job_waiting(settings: Settings, work: WorkInfo, job_id: Any) -> bool:
+    """True unless the validate Job of a review is known to be finished (an unreadable record counts as waiting)."""
+    path = jobs_dir(settings, work.work_key) / f"{job_id}.yaml"
+    if not isinstance(job_id, str) or not path.is_file():
+        return True
+    try:
+        return load_job_record(path)["state"] not in (JobState.COMPLETED.name, JobState.CANCELLED.name)
+    except (SchemaError, YamlError):
+        return True
+
+
 def run_validate_job(
     settings: Settings,
     work: WorkInfo,
@@ -252,7 +263,10 @@ def run_validate_job(
     if meta["state"] != ChapterState.DRAFTED.name:
         raise ChapterError(f"Chapter {chapter_id!r} must be DRAFTED on {branch} to validate, got: {meta['state']}")
     prev_review = _read_branch_yaml(repo, branch, _chapter_rel(chapter_id, "review.yaml"))
-    if isinstance(prev_review, dict) and prev_review.get("decision") is None:
+    # decision が null でも、PASS で COMPLETED になった review（その後に本文を編集した）は待っていない
+    if isinstance(prev_review, dict) and prev_review.get("decision") is None and _review_job_waiting(
+        settings, work, prev_review.get("job_id")
+    ):
         raise ChapterError(
             f"review.yaml on {branch} by {prev_review.get('job_id')} is waiting for a Human decision; "
             "to run validate again, first CANCEL that validate Job (decide --action CANCEL)"
