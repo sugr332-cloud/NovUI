@@ -114,3 +114,34 @@ def test_rewrite_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     agy = CaptureAgy(GOOD_TEXT)
     assert main(_args("rewrite", "--retry", first), settings=settings, container_runner=agy) == 0
     assert "テンポを上げる" in agy.prompt() and "黙る" in agy.prompt()
+
+
+def test_fix_queue_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from test_validatejob import integrity, ok_claude, writing
+    from novui.validatejob import run_validate_job
+    settings, work, rec = drafted(tmp_path)
+    run_validate_job(settings, work, CH, claude_runner=ok_claude(integrity("WARNING"), writing(1)))
+    capsys.readouterr()
+
+    assert main(_args("show"), settings=settings) == 0
+    out = capsys.readouterr().out
+    assert "decision: none" in out
+    assert "  I1 [WARNING character] C001 speech.first_person" in out and "  W1 [writing redundant] 冗長" in out
+
+    assert main(_args("fix", "--findings", "I1"), settings=settings) == 1
+    assert "REQUEST_FIX" in capsys.readouterr().err
+    assert main(_args("decide", "--action", "REQUEST_FIX", "--reason", "一人称"), settings=settings) == 0
+    assert main(_args("fix", "--findings", "I1, W1", "--note", "短く"), settings=settings) == 0
+    out = capsys.readouterr().out
+    assert "Queued Q-0001: range_edit ch-001 (I1)" in out and "Queued Q-0002" in out
+
+    assert main(["queue", "--work", KEY], settings=settings) == 0
+    assert "Q-0001 [pending] range_edit ch-001 I1" in capsys.readouterr().out
+
+    rc = main(["run-queue", "--work", KEY], settings=settings, container_runner=CaptureAgy(NEW))
+    out = capsys.readouterr().out
+    assert rc == 0 and "The queue is empty." in out and out.count("finished with state: COMPLETED") == 2
+    assert main(["queue", "--work", KEY, "--cancel", "Q-0001"], settings=settings) == 1
+    assert "cannot be cancelled" in capsys.readouterr().err
+    assert main(["queue", "--work", KEY], settings=settings) == 0
+    assert "Q-0002 [done] range_edit ch-001 W1 job" in capsys.readouterr().out

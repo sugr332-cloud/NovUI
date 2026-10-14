@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/queue.schema.json",
+  "description": "Job queue of a work in Controller data (phase2d5-design §7.1)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "item_id": { "type": "string", "pattern": "^Q-[0-9]{4,}$" },
+          "job_type": {
+            "type": "string",
+            "enum": ["range_edit", "chapter_rewrite", "plan_revision", "draft"]
+          },
+          "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["finding", "instruction", "human"]
+              },
+              "review_job": { "$ref": "common.schema.json#/$defs/job_id" },
+              "finding": { "type": "string", "pattern": "^[IW][0-9]+$" },
+              "instruction_id": { "$ref": "common.schema.json#/$defs/instruction_id" }
+            },
+            "required": ["kind"]
+          },
+          "anchor": {
+            "oneOf": [
+              { "$ref": "common.schema.json#/$defs/anchor" },
+              { "type": "null" }
+            ]
+          },
+          "instruction": { "type": "string" },
+          "instruction_id": {
+            "oneOf": [
+              { "$ref": "common.schema.json#/$defs/instruction_id" },
+              { "type": "null" }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "done", "waiting", "failed", "cancelled"]
+          },
+          "job_id": {
+            "oneOf": [
+              { "$ref": "common.schema.json#/$defs/job_id" },
+              { "type": "null" }
+            ]
+          },
+          "note": { "type": ["string", "null"] },
+          "added_at": { "$ref": "common.schema.json#/$defs/datetime" }
+        },
+        "required": [
+          "item_id", "job_type", "chapter_id", "source", "anchor", "instruction",
+          "instruction_id", "status", "job_id", "note", "added_at"
+        ]
+      }
+    }
+  },
+  "required": ["items"]
+}

@@ -279,3 +279,87 @@ def reject_plan(settings: Settings, work: WorkInfo, chapter_id: str) -> str:
         ChapterEvent.PLAN_REJECTED,
         subject=f"reject plan {chapter_id}",
     )
+
+
+def run_plan_revision_job(
+    settings: Settings,
+    work: WorkInfo,
+    chapter_id: str,
+    instruction: str,
+    *,
+    source: dict[str, Any] | None = None,
+    instruction_id: str | None = None,
+    job_id: str | None = None,
+    claude_runner: ClaudeRunner = run_claude,
+) -> dict[str, Any]:
+    """Revise the approved plan of a chapter (plan_revision, phase2d5-design §5).
+
+    The chapter must be PLAN_APPROVED on main with no job branch (decision 2: discard the branch first). Claude gets
+    the plan Job's context plus the current plan.yaml and the instruction; the result is checked like a plan and
+    committed on main with chapter.yaml PLANNED. Returns the job record.
+    """
+    if not instruction or not instruction.strip():
+        raise ValueError("instruction must not be empty")
+    repo = work.path
+    ensure_main_ready(repo)
+    if not can_accept_write_job(repo, chapter_id):
+        raise ChapterError(
+            f"Chapter {chapter_id!r} has a job branch; discard it first (discard) to revise the plan"
+        )
+    meta = read_chapter_meta(repo, chapter_id)
+    if meta is None or meta.get("state") != ChapterState.PLAN_APPROVED.name:
+        cur_st = meta.get("state") if meta else "NONE"
+        raise ChapterError(f"Chapter {chapter_id!r} must be PLAN_APPROVED to revise the plan, got: {cur_st}")
+    plan_rel = f"chapters/{chapter_id}/plan.yaml"
+    if not (repo / plan_rel).is_file():
+        raise ChapterError(f"{plan_rel} not found")
+
+    actual_job_id = job_id or next_job_id(settings, work.work_key)
+    ctx_paths = tuple(collect_plan_context(repo, chapter_id)) + (plan_rel,)
+    task_text = load_prompt_template(
+        "plan", chapter_id=chapter_id, format_notes=format_notes(read_text_format(repo), for_plan=True)
+    ).rstrip("\n") + "\n\n" + load_prompt_template(
+        "plan_revision", chapter_id=chapter_id, instruction=instruction.strip()
+    )
+
+    req = ClaudeJobRequest(
+        work_key=work.work_key,
+        job_id=actual_job_id,
+        job_type="plan_revision",
+        chapter_id=chapter_id,
+        root=repo,
+        context_paths=ctx_paths,
+        task_text=task_text,
+        expected_type="plan",
+        model=settings.claude_model,
+    )
+    record, data = run_claude_job(settings, req, claude_runner=claude_runner)
+    jdir = jobs_dir(settings, work.work_key)
+    record["instruction_id"] = instruction_id
+    record["edit"] = {
+        "anchor": None, "range_bytes": None, "reason": instruction.strip(), "source": source or {"kind": "human"},
+    }
+    save_job_record(jdir, record)
+    if data is None:
+        return record
+
+    details = _check_plan_refs(repo, chapter_id, data, ctx_paths)
+    record["checks"].append({"name": "plan_refs", "status": "FAIL" if details else "PASS", "details": details})
+    if details:
+        record = apply_transition(record, JobEvent.CHECK_FAILED, reason="plan_refs check failed")
+        save_job_record(jdir, record)
+        return record
+
+    transition_on_main(
+        settings,
+        work,
+        chapter_id,
+        ChapterEvent.PLAN_REVISED,
+        subject=f"revise plan {chapter_id} by {actual_job_id}",
+        trailers=[("NovUI-Job", actual_job_id)],
+        extra_files={plan_rel: dumps_yaml(data).encode("utf-8")},
+        last_job=actual_job_id,
+    )
+    record = apply_transition(record, JobEvent.CHECK_PASSED, needs_validation=False)
+    save_job_record(jdir, record)
+    return record

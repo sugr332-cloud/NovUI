@@ -21,6 +21,7 @@ from novui.draftjob import run_chapter_draft_job
 from novui.editjob import EDIT_JOB_TYPES, cancel_edit_job, run_chapter_rewrite_job, run_range_edit_job
 from novui.export import export_chapter, write_export
 from novui.finalize import discard_cycle, final_approve, waiting_jobs_on_branch
+from novui.jobqueue import cancel_item, fix_findings, load_queue, numbered_findings, queue_lock, run_queue
 from novui.jobrecord import load_job_record
 from novui.jobrunner import ContainerRunner, jobs_dir
 from novui.models import (
@@ -31,7 +32,7 @@ from novui.models import (
     select_model,
 )
 from novui.locks import RunLock
-from novui.planjob import approve_plan, reject_plan, run_plan_job
+from novui.planjob import approve_plan, reject_plan, run_plan_job, run_plan_revision_job
 from novui.requestflow import redraft, resolve_request, unresolved_requests
 from novui.stateupdate import approve_state, reject_state, run_state_update, show_proposal
 from novui.validatejob import (
@@ -156,6 +157,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rw.add_argument("--reason", default=None, help="How to rewrite the chapter")
     p_rw.add_argument("--retry", default=None, help="Run a WAITING_HUMAN chapter_rewrite Job again (same reason)")
 
+    # revise-plan --work <key> --chapter <id> --instruction <text>
+    p_rp = subparsers.add_parser("revise-plan")
+    p_rp.add_argument("--work", required=True, help="Novel work key")
+    p_rp.add_argument("--chapter", required=True, help="Chapter ID (PLAN_APPROVED, no job branch)")
+    p_rp.add_argument("--instruction", required=True, help="How to revise the plan")
+
+    # fix --work <key> --chapter <id> --findings I1,W2 [--note <text>] [--force]
+    p_fx = subparsers.add_parser("fix")
+    p_fx.add_argument("--work", required=True, help="Novel work key")
+    p_fx.add_argument("--chapter", required=True, help="Chapter ID")
+    p_fx.add_argument("--findings", required=True, help="Finding numbers shown by show, comma separated (I1,W2)")
+    p_fx.add_argument("--note", default=None, help="Extra instruction for the edits")
+    p_fx.add_argument("--force", action="store_true", help="Allow a third fix round on the job branch (§11.5)")
+
+    # run-queue --work <key> [--retry]
+    p_rq = subparsers.add_parser("run-queue")
+    p_rq.add_argument("--work", required=True, help="Novel work key")
+    p_rq.add_argument("--retry", action="store_true", help="Run the waiting / failed item at the head again")
+
+    # queue --work <key> [--cancel <item_id>]
+    p_q = subparsers.add_parser("queue")
+    p_q.add_argument("--work", required=True, help="Novel work key")
+    p_q.add_argument("--cancel", default=None, help="Cancel a queue item (Q-0001)")
+
     # cancel-job --work <key> --job <job_id>
     p_cj = subparsers.add_parser("cancel-job")
     p_cj.add_argument("--work", required=True, help="Novel work key")
@@ -265,6 +290,17 @@ def _show_cycle(settings: Settings, work: Any, chapter_id: str) -> None:
     except Exception as exc:
         print(f"Job branch: {branch} (chapter state unreadable: {exc})")
     _show_proposal_summary(settings, work, chapter_id)
+    try:
+        review = _read_branch_yaml(repo, branch, f"chapters/{chapter_id}/review.yaml")
+    except Exception:
+        review = None
+    if isinstance(review, dict):
+        decision = (review.get("decision") or {}).get("action")
+        print(f"Review: {review.get('job_id')} (decision: {decision or 'none'})")
+        for fid, f in numbered_findings(review).items():
+            mark = f["severity"] or "writing"
+            anchor = "" if f["anchor"] else " (no anchor)"
+            print(f"  {fid} [{mark} {f['check']}] {f['message']}{anchor}")
     try:
         requests = _read_branch_yaml(repo, branch, f"chapters/{chapter_id}/requests.yaml")
     except Exception:
@@ -431,10 +467,11 @@ def main(
                     raise ValueError("--anchor and --reason are required (or --retry <job_id>)")
                 anchor = {"text": args.anchor, "before": args.before, "after": args.after}
                 reason, source = args.reason, {"kind": "human"}
-            record = run_range_edit_job(
-                cfg, work, args.chapter, anchor=anchor, reason=reason, source=source, retry_of=args.retry,
-                run_lock=RunLock(), container_runner=container_runner,
-            )
+            with queue_lock(cfg, work.work_key):
+                record = run_range_edit_job(
+                    cfg, work, args.chapter, anchor=anchor, reason=reason, source=source, retry_of=args.retry,
+                    run_lock=RunLock(), container_runner=container_runner,
+                )
             return _report_job(record)
 
         elif args.subcommand == "rewrite":
@@ -450,11 +487,54 @@ def main(
                 if args.reason is None:
                     raise ValueError("--reason is required (or --retry <job_id>)")
                 reason, source = args.reason, {"kind": "human"}
-            record = run_chapter_rewrite_job(
-                cfg, work, args.chapter, reason=reason, source=source, retry_of=args.retry,
-                run_lock=RunLock(), container_runner=container_runner,
-            )
+            with queue_lock(cfg, work.work_key):
+                record = run_chapter_rewrite_job(
+                    cfg, work, args.chapter, reason=reason, source=source, retry_of=args.retry,
+                    run_lock=RunLock(), container_runner=container_runner,
+                )
             return _report_job(record)
+
+        elif args.subcommand == "revise-plan":
+            work = get_work(cfg, args.work)
+            record = run_plan_revision_job(cfg, work, args.chapter, args.instruction, claude_runner=claude_runner)
+            rc = _report_job(record)
+            if record.get("state") == "COMPLETED":
+                print(f"Chapter {args.chapter} is PLANNED: check the plan and run approve-plan before drafting.")
+            return rc
+
+        elif args.subcommand == "fix":
+            work = get_work(cfg, args.work)
+            ids = [f.strip() for f in args.findings.split(",") if f.strip()]
+            items = fix_findings(cfg, work, args.chapter, ids, note=args.note, force=args.force)
+            for item in items:
+                print(f"Queued {item['item_id']}: range_edit {item['chapter_id']} ({item['source']['finding']})")
+            print("Run run-queue to execute them.")
+            return 0
+
+        elif args.subcommand == "run-queue":
+            work = get_work(cfg, args.work)
+            records = run_queue(cfg, work, retry=args.retry, run_lock=RunLock(),
+                                container_runner=container_runner, claude_runner=claude_runner, report=print)
+            rc = 0
+            for record in records:
+                rc = _report_job(record)
+            return rc
+
+        elif args.subcommand == "queue":
+            work = get_work(cfg, args.work)
+            if args.cancel is not None:
+                item = cancel_item(cfg, work.work_key, args.cancel)
+                print(f"{item['item_id']} cancelled")
+                return 0
+            items = load_queue(cfg, work.work_key)
+            if not items:
+                print("The queue is empty.")
+            for item in items:
+                where = f" {item['source']['finding']}" if item["source"].get("finding") else ""
+                job = f" job {item['job_id']}" if item["job_id"] else ""
+                note = f" — {item['note']}" if item["note"] else ""
+                print(f"{item['item_id']} [{item['status']}] {item['job_type']} {item['chapter_id']}{where}{job}{note}")
+            return 0
 
         elif args.subcommand == "cancel-job":
             work = get_work(cfg, args.work)
