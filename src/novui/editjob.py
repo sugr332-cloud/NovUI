@@ -17,6 +17,7 @@ from novui.charrules import render_rule_tables, scene_rule_tables
 from novui.flagstate import load_flag_states
 from novui.checks import (
     CheckResult,
+    agy_account_reason,
     check_allowed_paths,
     check_char_range,
     check_ignored_unchanged,
@@ -369,7 +370,7 @@ def _execute(
 
         if any(c.status == "FAIL" for c in checks):
             _restore_paths(worktree, written)
-            record = apply_transition(record, JobEvent.CHECK_FAILED)
+            record = apply_transition(record, JobEvent.CHECK_FAILED, reason=agy_account_reason(checks))
             save_job_record(jdir, record)
             return record
 

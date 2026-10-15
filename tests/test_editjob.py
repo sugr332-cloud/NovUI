@@ -19,6 +19,7 @@ from novui.editjob import CONTEXT_CHARS, cancel_edit_job, locate_range, run_chap
 from novui.gitinspect import get_changes, run_git
 from novui.jobrecord import load_job_record
 from novui.jobrunner import jobs_dir
+from novui.procrun import ProcResult
 from novui.requestflow import resolve_request
 from novui.validatejob import run_validate_job
 from novui.workrepo import commit_all, head_commit, parse_trailers
@@ -218,6 +219,20 @@ def test_range_edit_bad_output_fails_without_change(tmp_path: Path, output: str,
     assert head_commit(wt, "HEAD") == head0
     assert get_changes(wt) == []
     assert (wt / DRAFT).read_text(encoding="utf-8") == GOOD_TEXT
+
+
+def test_range_edit_quota_failure_has_reason(tmp_path: Path) -> None:
+    settings, work, draft_rec = drafted(tmp_path)
+
+    def quota(**kwargs: Any) -> ProcResult:
+        return ProcResult(exit_code=1, elapsed_seconds=1.0, timed_out=False, signal_sent=None, group_remaining=False,
+                          stdout=b"", stderr=b"Error: Individual quota reached")
+
+    rec = _edit(settings, work, quota)
+    assert rec["state"] == "FAILED"
+    assert _checks(rec)["agy_account"]["details"] == ["agy_quota", "Error: Individual quota reached"]
+    assert rec["history"][-1]["reason"] == "agy_quota: Error: Individual quota reached"
+    assert (_wt(draft_rec) / DRAFT).read_text(encoding="utf-8") == GOOD_TEXT
 
 
 def test_range_edit_range_with_marker_makes_no_job(tmp_path: Path) -> None:

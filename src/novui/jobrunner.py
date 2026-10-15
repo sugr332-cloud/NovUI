@@ -7,6 +7,8 @@ from typing import Any, Callable, Sequence
 from novui.agy_output import AgyOutputError, AgyText, Marker, markers_to_requests, parse_agy_text
 from novui.checks import (
     CheckResult,
+    agy_account_reason,
+    check_agy_account,
     check_allowed_paths,
     check_append_only,
     check_char_range,
@@ -180,6 +182,10 @@ def run_agy_in_worktree(
         checks.append(CheckResult(name="agy_output", status="PASS"))
     except AgyOutputError as exc:
         checks.append(CheckResult(name="agy_output", status="FAIL", details=(exc.kind,)))
+    if any(c.status == "FAIL" for c in checks if c.name in ("cli_output", "agy_output")):
+        account = check_agy_account(proc_res.stdout, proc_res.stderr)
+        if account is not None:
+            checks.append(account)
     return AgyRun(record, checks, parsed, pre_ignored, None)
 
 
@@ -329,7 +335,7 @@ def run_draft_job(
         # 14. Check if any check failed
         has_fail = any(c["status"] == "FAIL" for c in record["checks"])
         if has_fail:
-            record = apply_transition(record, JobEvent.CHECK_FAILED)
+            record = apply_transition(record, JobEvent.CHECK_FAILED, reason=agy_account_reason(checks))
             save_job_record(jdir, record)
             return record
 

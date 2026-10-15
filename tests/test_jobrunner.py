@@ -235,6 +235,34 @@ def test_jobrunner_empty_output_fails(tmp_path: Path) -> None:
     _assert_cleanup_and_valid_record(settings, req.work_key, req.job_id, run_lock)
 
 
+@pytest.mark.parametrize(("exit_code", "stdout", "stderr", "reason"), [
+    (1, b"", b"Error: Individual quota reached for gemini-3.8-flash-high", "agy_quota: Error: Individual quota reached for gemini-3.8-flash-high"),
+    (1, b"", b"error getting token source: You are not logged into Antigravity.", "agy_auth: error getting token source: You are not logged into Antigravity."),
+    (1, b"", b"segmentation fault", None),
+    (0, b"done", b"You are not logged into Antigravity.", None),  # 成功した実行は、裏の警告があっても分類しない
+])
+def test_jobrunner_agy_account_failure(tmp_path: Path, exit_code: int, stdout: bytes, stderr: bytes,
+                                       reason: str | None) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    settings = _make_settings(tmp_path)
+    run_lock = RunLock()
+
+    def mock_runner(*args, **kwargs) -> ProcResult:
+        return ProcResult(exit_code=exit_code, elapsed_seconds=1.0, timed_out=False, signal_sent=None,
+                          group_remaining=False, stdout=stdout, stderr=stderr)
+
+    req = DraftJobRequest(work_key="my-work", repo=repo, chapter_id="ch-001", job_id="job-0031",
+                          model="gemini-3.8-flash-high", context_paths=(), instruction="第1章を執筆してください。")
+    record = run_draft_job(settings, req, run_lock, container_runner=mock_runner)
+
+    assert record["state"] == (JobState.COMPLETED.name if exit_code == 0 else JobState.FAILED.name)
+    assert record["history"][-1]["reason"] == reason
+    names = [c["name"] for c in record["checks"]]
+    assert ("agy_account" in names) == (reason is not None)
+    _assert_cleanup_and_valid_record(settings, req.work_key, req.job_id, run_lock)
+
+
 # 4. 許可範囲外の変更
 def test_jobrunner_disallowed_paths_tampering(tmp_path: Path) -> None:
     repo = tmp_path / "repo"

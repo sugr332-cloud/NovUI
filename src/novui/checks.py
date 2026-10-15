@@ -1,5 +1,6 @@
 """Inspection and validation checks."""
 
+import re
 from dataclasses import dataclass
 from typing import Collection, Mapping, Sequence, Set
 
@@ -29,6 +30,35 @@ def check_cli_output(exit_code: int, stdout: bytes) -> CheckResult:
     if details:
         return CheckResult(name="cli_output", status="FAIL", details=tuple(details))
     return CheckResult(name="cli_output", status="PASS")
+
+
+# AGY が失敗したときの出力のうち、アカウントの問題（Human が手で直すもの）を示す行。上限を先に見る
+AGY_ACCOUNT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("agy_quota", re.compile(r"quota (?:reached|exceeded)|RESOURCE_EXHAUSTED", re.IGNORECASE)),
+    ("agy_auth", re.compile(r"not logged in|UNAUTHENTICATED|invalid_grant|re-?authenticat|login required",
+                            re.IGNORECASE)),
+)
+
+
+def check_agy_account(stdout: bytes, stderr: bytes) -> CheckResult | None:
+    """'agy_account' FAIL with (cause, line) when the output shows a login or quota problem; None otherwise.
+
+    Call it only for a failed run: AGY may log such lines in the background of a run that works.
+    """
+    lines = (stderr + b"\n" + stdout).decode("utf-8", errors="replace").splitlines()
+    for cause, pattern in AGY_ACCOUNT_PATTERNS:
+        for line in lines:
+            if pattern.search(line):
+                return CheckResult(name="agy_account", status="FAIL", details=(cause, line.strip()[:200]))
+    return None
+
+
+def agy_account_reason(checks: Sequence[CheckResult]) -> str | None:
+    """Reason of CHECK_FAILED for an 'agy_account' failure, e.g. 'agy_quota: Individual quota reached'."""
+    for c in checks:
+        if c.name == "agy_account" and c.status == "FAIL":
+            return f"{c.details[0]}: {c.details[1]}"
+    return None
 
 
 def check_allowed_paths(changes: Sequence[PathChange], allowed: Collection[str]) -> CheckResult:

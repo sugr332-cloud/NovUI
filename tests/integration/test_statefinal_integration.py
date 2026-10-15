@@ -4,9 +4,11 @@ S1: draft (real AGY) -> validate (real Claude) -> state_update (real Claude) -> 
 S2: a draft that needs an undefined setting -> WAITING_HUMAN -> resolve_request -> redraft (real AGY).
 
 Nothing is adjusted to make a run pass: when the real output is not what the flow needs, the test prints what it got
-and stops (skip) or fails. Run only on Human's instruction, with the alternate-account AGY token:
+and stops (skip) or fails. Run only on Human's instruction. The usual AGY token may be used (Human, 2026-10-15); do
+not use agy by hand while it runs. A login or quota failure stops the Job with reason agy_auth / agy_quota: report it
+and wait for Human (log in again, or wait for the quota to reset). Do not retry by hand.
 
-    NOVUI_INTEGRATION=1 NOVUI_AGY_TOKEN=<alternate token> NOVUI_AGY_MODEL=gemini-3.8-flash-high \\
+    NOVUI_INTEGRATION=1 NOVUI_AGY_MODEL=gemini-3.8-flash-high \\
         .venv/bin/python -m pytest -s -rs -m integration tests/integration/test_statefinal_integration.py
 """
 

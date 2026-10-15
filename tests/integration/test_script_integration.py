@@ -1,7 +1,7 @@
 """Integration tests of the novel game script format (phase2e-design, agy-instruction-2e 2-E6).
 
 E1-E5 use a fake AGY (the fixture script is returned as the draft) and the real Claude. E6 uses the real AGY and
-runs only with NOVUI_SCRIPT_AGY=1 (and the alternate-account AGY token, like the other AGY integration tests).
+runs only with NOVUI_SCRIPT_AGY=1 (and on Human's instruction, like the other AGY integration tests).
 Nothing is adjusted to make a run pass: when the real output is not what the flow needs, the test prints what it got
 and stops.
 

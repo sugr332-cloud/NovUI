@@ -3,6 +3,9 @@
 import pytest
 
 from novui.checks import (
+    CheckResult,
+    agy_account_reason,
+    check_agy_account,
     check_allowed_paths,
     check_append_only,
     check_char_range,
@@ -219,3 +222,17 @@ def test_check_char_range() -> None:
         check_char_range(text, -1, 10)
     with pytest.raises(ValueError):
         check_char_range(text, 10, 5)
+
+
+def test_check_agy_account() -> None:
+    quota = check_agy_account(b"", b"W1015 x\nError: Individual quota reached for gemini-3.8-flash-high\n")
+    assert quota == CheckResult("agy_account", "FAIL",
+                                ("agy_quota", "Error: Individual quota reached for gemini-3.8-flash-high"))
+    auth = check_agy_account(b"You are not logged into Antigravity.", b"")
+    assert auth is not None and auth.details[0] == "agy_auth"
+    # 上限は認証より先に見る
+    both = check_agy_account(b"", b"not logged in\nRESOURCE_EXHAUSTED")
+    assert both is not None and both.details[0] == "agy_quota"
+    assert check_agy_account(b"", b"some other error") is None
+    assert agy_account_reason([quota]) == "agy_quota: Error: Individual quota reached for gemini-3.8-flash-high"
+    assert agy_account_reason([CheckResult("cli_output", "FAIL", ("exit_code=1",))]) is None
