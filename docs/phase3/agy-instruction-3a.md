@@ -151,3 +151,45 @@ main の chapter.yaml が**すでに FINAL**（FINAL の章を開き直したサ
 * テストの結果（全体の件数：passed・skipped・failed）
 * 指示どおりにできなかった点（無ければ「なし」）
 * 判断に迷った点
+
+---
+
+## 3-A 修正 01（Claude のレビュー、2026-10-18）
+
+### 修正の許可範囲（上の許可範囲に加えて）
+
+```text
+src/novui/protectaudit.py
+src/novui/chapters.py（review_only_since の追加だけ）
+src/novui/stateupdate.py（approve_state の branch_head の比較の2か所だけ）
+tests/**
+```
+
+### R1：NovUI-Edit で安全でないパスの違反が消える
+
+`audit_changes` の規則 3 で `return []` としているため、`NovUI-Edit` があると、規則 1 で見つけた安全でないパスの違反が捨てられる。`return violations` にする（規則 1 の違反だけが返る）。テスト：`NovUI-Edit` 付きで安全でないパスを含む変更が違反になること。
+
+### R2：作業ブランチに要確認を書くと、承認待ちの state_update の提案が無効になる
+
+`approve_state` は、作業ブランチの HEAD が提案の `branch_head` と違えば提案を invalid にする（stateupdate.py の「無効の検査」）。`mark_review_required`・`clear_review_required` が作業ブランチに commit すると HEAD が進むので、承認待ちの提案が無効になってしまう。要確認の commit は本文も設定も変えないので、提案を無効にする理由にならない。
+
+1. chapters.py に追加：
+
+```python
+def review_only_since(repo: Path, base: str, head: str, chapter_id: str) -> bool
+```
+
+`base` が `head` の祖先で、`base..head` のすべての commit が次を満たせば True（`base == head` も True）。
+* merge commit でない
+* 変更が `chapters/<chapter_id>/chapter.yaml` の M だけ
+* 親の chapter.yaml と比べて、`review_required` と `review_reasons` 以外のキーの値が同じ
+
+2. stateupdate.approve_state の2か所を変える（他は変えない）：
+* 無効の検査：`head != proposal["branch_head"]` を `not review_only_since(worktree, proposal["branch_head"], head, chapter_id)` にする。
+* 復旧の判定：`parent == proposal["branch_head"]` を `review_only_since(worktree, proposal["branch_head"], parent, chapter_id)` にする。
+
+3. テスト：
+* `review_only_since`：要確認の commit だけ（1件、2件）で True。state も変えた commit、他のファイルを変えた commit、base が祖先でない場合に False。
+* 提案が承認待ちの章に `mark_review_required` で要確認を立ててから `approve_state` すると、提案が invalid にならずに承認できること。`clear_review_required` の後も同じ。
+
+報告は `docs/phase3/reports/3a-01.md` に書き、全体の試験の件数を入れて commit・push する。
