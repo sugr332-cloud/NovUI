@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from novui.chapters import (
     ChapterError,
     add_chapter,
+    clear_review_required,
     read_chapter_meta,
     read_chapters_order,
 )
@@ -221,6 +222,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ex.add_argument("--out", required=True, help="Output directory (engine assets/scripts)")
     p_ex.add_argument("--route", default="common", help="Engine route directory (default: common)")
     p_ex.add_argument("--engine-chapter", default=None, help="Engine chapter id (default: chapter_NN)")
+
+    # review-done --work <key> --chapter <id>
+    p_rdone = subparsers.add_parser("review-done")
+    p_rdone.add_argument("--work", required=True, help="Novel work key")
+    p_rdone.add_argument("--chapter", required=True, help="Chapter ID")
 
     # show --work <key> [--chapter <id>]
     p_show = subparsers.add_parser("show")
@@ -636,6 +642,12 @@ def main(
             print(f"Plan for chapter {args.chapter} rejected (commit {c_hash})")
             return 0
 
+        elif args.subcommand == "review-done":
+            work = get_work(cfg, args.work)
+            c_hash = clear_review_required(cfg, work, args.chapter)
+            print(f"Review required cleared for chapter {args.chapter} (commit {c_hash})")
+            return 0
+
         elif args.subcommand == "show":
             work = get_work(cfg, args.work)
             repo = work.path
@@ -664,10 +676,21 @@ def main(
             else:
                 order = read_chapters_order(repo)
                 for ch_id in order:
-                    meta = read_chapter_meta(repo, ch_id)
+                    branches = chapter_branches(repo, ch_id)
+                    if branches:
+                        meta = _read_branch_chapter_meta(repo, branches[-1], ch_id)
+                    else:
+                        meta = read_chapter_meta(repo, ch_id)
                     title = meta.get("title", "") if meta else ""
                     state = meta.get("state", "UNKNOWN") if meta else "UNKNOWN"
-                    print(f"{ch_id}: {title} [{state}]")
+                    line = f"{ch_id}: {title} [{state}]"
+                    if meta and meta.get("review_required"):
+                        line += " (review required)"
+                        print(line)
+                        for reason in meta.get("review_reasons", []):
+                            print(f"  - {reason['code']}: {reason['detail']} ({reason['at']})")
+                    else:
+                        print(line)
             return 0
 
         elif args.subcommand == "models":

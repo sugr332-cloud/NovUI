@@ -11,19 +11,35 @@ from pathlib import Path
 from typing import Any
 
 from novui.approvals import approval_rel, is_approval_used
-from novui.chapters import ChapterError, ensure_main_ready, read_chapter_meta
+from novui.chapters import (
+    ChapterError,
+    ensure_main_ready,
+    mark_review_required,
+    read_chapter_meta,
+    read_chapters_order,
+    review_marked,
+    subsequent_chapters,
+)
 from novui.config import Settings
 from novui.gitinspect import GitError, get_changes, run_git
-from novui.jobrecord import apply_transition, load_job_record, save_job_record
+from novui.jobrecord import apply_transition, load_job_record, now_iso, save_job_record
 from novui.jobrunner import jobs_dir
 from novui.paths import is_safe_relpath
 from novui.proposals import find_proposals, save_proposal, with_status
+from novui.protectaudit import audit_changes
 from novui.protected import is_protected
 from novui.schema import SchemaError, validate_or_raise
 from novui.semantics import check_approval, check_chapter
 from novui.states import ChapterEvent, ChapterState, JobEvent, JobState, next_chapter_state
 from novui.validatejob import _read_branch_chapter_meta, find_chapter_branch
-from novui.workrepo import JobWorktree, head_commit, merge_job_branch, parse_trailers, remove_job_worktree
+from novui.workrepo import (
+    JobWorktree,
+    chapter_branches,
+    head_commit,
+    merge_job_branch,
+    parse_trailers,
+    remove_job_worktree,
+)
 from novui.works import WorkInfo
 from novui.yamlio import dumps_yaml, loads_yaml
 
@@ -192,66 +208,24 @@ def audit_protected_changes(repo: Path, jw: JobWorktree) -> list[str]:
     for commit in commits:
         label = commit[:10]
         changes = _diff_tree(repo, commit)
-        protected: list[tuple[str, str]] = []
-        for status, path in changes:
-            if not is_safe_relpath(path):
-                violations.append(f"{label}: unsafe path {path!r}")
-            elif is_protected(path):
-                protected.append((status, path))
-        if not protected:
-            continue
-
         message = run_git(repo, "log", "-1", "--format=%B", commit).decode("utf-8")
         trailers = parse_trailers(message)
-        approvals = trailers.get("Approval-Id", [])
-        paths = [p for _, p in protected]
-        if not approvals:
-            violations.append(
-                f"{label}: protected paths changed without an Approval-Id trailer "
-                f"(NovUI-Edit is not accepted on a job branch): {paths}"
-            )
-            continue
 
-        added = {p for s, p in changes if s == "A"}
-        targets: set[str] = set()
-        records: set[str] = set()
-        for approval_id in approvals:
-            try:
-                rel = approval_rel(approval_id)
-            except ValueError:
-                violations.append(f"{label}: invalid Approval-Id trailer {approval_id!r}")
-                continue
-            if rel not in added:
-                violations.append(f"{label}: approval record {rel} was not added in the same commit")
-                continue
-            try:
-                doc = loads_yaml(run_git(repo, "show", f"{commit}:{rel}").decode("utf-8"))
-                validate_or_raise(doc, "approval")
-            except (SchemaError, GitError, ValueError) as exc:
-                violations.append(f"{label}: approval record {rel} is invalid: {exc}")
-                continue
-            sem = check_approval(doc)
-            if sem:
-                violations.append(f"{label}: approval record {rel} is invalid: {sem}")
-                continue
-            if doc["approval_id"] != approval_id:
-                violations.append(f"{label}: approval record {rel} has approval_id {doc['approval_id']!r}")
-                continue
-            if doc["job_id"] not in trailers.get("NovUI-Job", []):
-                violations.append(f"{label}: approval record {rel} job_id {doc['job_id']!r} is not a NovUI-Job trailer")
-            if is_approval_used(repo, approval_id):
-                violations.append(f"{label}: approval {approval_id} already exists on main (used)")
-            records.add(rel)
-            targets.update(doc["targets"])
+        def read_added(path: str) -> bytes:
+            return run_git(repo, "show", f"{commit}:{path}")
 
-        for status, path in protected:
-            if path.startswith(_APPROVALS_PREFIX):
-                if status != "A" or path not in records:
-                    violations.append(f"{label}: {path} ({status}) is not an approval record of this commit")
-            elif status == "D":
-                violations.append(f"{label}: protected path deleted: {path}")
-            elif path not in targets:
-                violations.append(f"{label}: {path} is not in the targets of the approval records {sorted(records)}")
+        def is_used(approval_id: str) -> bool:
+            return is_approval_used(repo, approval_id)
+
+        c_violations = audit_changes(
+            changes,
+            trailers,
+            read_added,
+            is_used,
+            allow_edit=False,
+        )
+        for v in c_violations:
+            violations.append(f"{label}: {v}")
     return violations
 
 
@@ -332,6 +306,27 @@ def final_approve(settings: Settings, work: WorkInfo, chapter_id: str) -> str:
     if sem_errs:
         raise SchemaError(f"Semantic validation failed for chapter: {sem_errs}", errors=sem_errs)
 
+    extra_writes = {f"chapters/{chapter_id}/chapter.yaml": dumps_yaml(final_meta).encode("utf-8")}
+
+    if main_meta["state"] == ChapterState.FINAL.name:
+        order = read_chapters_order(repo)
+        subs = subsequent_chapters(order, chapter_id)
+        if subs:
+            at = now_iso()
+            code = "previous_chapter_changed"
+            detail = f"{chapter_id} was changed and final-approved again"
+            mark_review_required(settings, work, subs, code, detail, branch_only=True)
+            for sub_id in subs:
+                if not chapter_branches(repo, sub_id):
+                    sub_meta = read_chapter_meta(repo, sub_id)
+                    if sub_meta is not None:
+                        new_sub_meta = review_marked(sub_meta, code, detail, at)
+                        validate_or_raise(new_sub_meta, "chapter")
+                        sem = check_chapter(new_sub_meta)
+                        if sem:
+                            raise SchemaError(f"Semantic validation failed for chapter: {sem}", errors=sem)
+                        extra_writes[f"chapters/{sub_id}/chapter.yaml"] = dumps_yaml(new_sub_meta).encode("utf-8")
+
     merge_commit = merge_job_branch(
         repo,
         info.jw,
@@ -339,7 +334,7 @@ def final_approve(settings: Settings, work: WorkInfo, chapter_id: str) -> str:
         trailers,
         name=settings.git_name,
         email=settings.git_email,
-        extra_writes={f"chapters/{chapter_id}/chapter.yaml": dumps_yaml(final_meta).encode("utf-8")},
+        extra_writes=extra_writes,
     )
 
     try:

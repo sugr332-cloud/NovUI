@@ -7,9 +7,11 @@ from pathlib import Path
 import re
 from typing import Iterable, Mapping, Sequence
 
+from novui.approvals import approval_rel, is_approval_used
 from novui.checks import CheckResult
 from novui.gitinspect import GitError, run_git
 from novui.paths import ensure_within, is_safe_relpath
+from novui.protectaudit import audit_changes
 from novui.protected import is_protected
 
 
@@ -192,16 +194,62 @@ def commit_all(
     """Stage all changes, check commit guard, and commit. Returns new commit hash or None if clean."""
     run_git(worktree, "add", "-A")
 
-    diff_bytes = run_git(worktree, "diff", "--cached", "--name-only", "-z", "--no-renames")
-    changed = [p for p in diff_bytes.decode("utf-8").split("\0") if p]
+    try:
+        run_git(worktree, "rev-parse", "--verify", "HEAD")
+        has_head = True
+    except GitError:
+        has_head = False
 
-    if not changed:
+    if has_head:
+        diff_bytes = run_git(worktree, "diff", "--cached", "--name-status", "-z", "--no-renames")
+        parts = diff_bytes.decode("utf-8", errors="surrogateescape").split("\0")
+        if parts and parts[-1] == "":
+            parts.pop()
+        changes = [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+    else:
+        ls_out = run_git(worktree, "ls-files", "--cached", "-z")
+        paths = [p for p in ls_out.decode("utf-8", errors="surrogateescape").split("\0") if p]
+        changes = [("A", p) for p in paths]
+
+    if not changes:
         return None
 
-    guard = check_commit_guard(changed, trailers)
-    if guard.status == "FAIL":
+    trailers_dict: dict[str, list[str]] = {}
+    for k, v in trailers:
+        trailers_dict.setdefault(k, []).append(v)
+
+    def read_added(path: str) -> bytes:
+        return run_git(worktree, "show", f":{path}")
+
+    def is_used(approval_id: str) -> bool:
+        if is_approval_used(worktree, approval_id):
+            return True
+        if has_head:
+            try:
+                rel = approval_rel(approval_id)
+                run_git(worktree, "cat-file", "-e", f"HEAD:{rel}")
+                return True
+            except (GitError, ValueError):
+                pass
+        return False
+
+    violations = audit_changes(
+        changes,
+        trailers_dict,
+        read_added,
+        is_used,
+        allow_edit=True,
+    )
+    if violations:
         run_git(worktree, "reset", "-q")
-        raise CommitGuardError(f"Commit guard failed for paths: {guard.details}", paths=guard.details)
+        violating_paths = sorted({
+            p for _, p in changes
+            if not is_safe_relpath(p) or is_protected(p)
+        })
+        raise CommitGuardError(
+            f"Commit guard failed:\n" + "\n".join(violations),
+            paths=tuple(violating_paths),
+        )
 
     msg = format_message(subject, trailers)
     run_git(worktree, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-m", msg)
