@@ -1,5 +1,6 @@
 """Semantic validations that go beyond JSON Schema."""
 
+from pathlib import Path
 from typing import Any, Callable
 from novui.paths import is_safe_relpath
 
@@ -36,6 +37,67 @@ def check_plan(doc: Any) -> list[str]:
         if not is_safe_relpath(p):
             errors.append(f"context.settings path is not a safe relative path: {p!r}")
 
+    errors += _check_plan_flow(doc.get("scenes", []))
+    return errors
+
+
+def plan_scene_successors(scenes: list[Any]) -> dict[str, list[str]]:
+    """Next scenes of each scene (script-format §3): the choice targets, else next, else the following scene.
+
+    The last scene without choice/next has no successor (end of the chapter).
+    """
+    ids = [s.get("id") for s in scenes]
+    result: dict[str, list[str]] = {}
+    for i, s in enumerate(scenes):
+        if s.get("choice"):
+            result[s["id"]] = [c.get("goto") for c in s["choice"]]
+        elif s.get("next"):
+            result[s["id"]] = [s["next"]]
+        elif i + 1 < len(ids):
+            result[s["id"]] = [ids[i + 1]]
+        else:
+            result[s["id"]] = []
+    return result
+
+
+def _check_plan_flow(scenes: list[Any]) -> list[str]:
+    """choice/next of the scenes: targets exist and are later scenes, every scene is reachable (phase2e-design §5.1)."""
+    errors: list[str] = []
+    if not scenes or not all(isinstance(s, dict) and "id" in s for s in scenes):
+        return errors
+    index = {s["id"]: i for i, s in enumerate(scenes)}
+    for i, s in enumerate(scenes):
+        sid = s["id"]
+        choice = s.get("choice")
+        if choice and s.get("next"):
+            errors.append(f"Scene {sid} has both choice and next")
+        if s.get("next") and i == len(scenes) - 1:
+            errors.append(f"Scene {sid} is the last scene and must not have next")
+        targets = [c.get("goto") for c in choice] if choice else ([s["next"]] if s.get("next") else [])
+        for t in targets:
+            if t not in index:
+                errors.append(f"Scene {sid} goes to {t} which is not in the plan")
+            elif index[t] <= i:
+                errors.append(f"Scene {sid} goes to {t} which is not a later scene")
+        extras = s.get("extras", [])
+        if len(set(extras)) != len(extras):
+            errors.append(f"Scene {sid} has duplicate extras")
+    engine_ids = [s["engine_id"] for s in scenes if s.get("engine_id")]
+    for eid in sorted({e for e in engine_ids if engine_ids.count(e) > 1}):
+        errors.append(f"Duplicate scene engine_id: {eid}")
+    if errors:
+        return errors
+    succ = plan_scene_successors(scenes)
+    reached = {scenes[0]["id"]}
+    stack = [scenes[0]["id"]]
+    while stack:
+        for t in succ[stack.pop()]:
+            if t not in reached:
+                reached.add(t)
+                stack.append(t)
+    for s in scenes:
+        if s["id"] not in reached:
+            errors.append(f"Scene {s['id']} is not reachable from the first scene")
     return errors
 
 
@@ -56,6 +118,10 @@ def check_integrity_review(doc: Any) -> list[str]:
             for f in c_data.get("findings", []):
                 if f.get("severity") == "STOP":
                     errors.append(f"Check {name!r} has result PASS but contains a STOP finding")
+        if name != "character":
+            for i, f in enumerate(c_data.get("findings", [])):
+                if f.get("character") is not None:
+                    errors.append(f"Check {name!r} finding {i} has character but only 'character' findings may")
 
     expected_overall = rank_to_res[max_rank]
     actual_overall = doc.get("result")
@@ -190,6 +256,10 @@ def check_character(doc: Any) -> list[str]:
             if isinstance(r, dict) and r.get("with") == my_id:
                 errors.append(f"relationships with {my_id!r} cannot be the character's own id")
 
+    expressions = doc.get("expressions", [])
+    if isinstance(expressions, list) and len(set(expressions)) != len(expressions):
+        errors.append("Duplicate expressions")
+
     knowledge = doc.get("knowledge", [])
     if isinstance(knowledge, list):
         seen_k_ids: set[str] = set()
@@ -229,6 +299,21 @@ def check_registry(doc: Any) -> list[str]:
     return errors
 
 
+def check_flags(doc: Any) -> list[str]:
+    """Validate flags/registry.yaml semantics."""
+    errors: list[str] = []
+    if not isinstance(doc, list):
+        return ["flags document must be an array"]
+    seen: set[str] = set()
+    for item in doc:
+        if isinstance(item, dict):
+            name = item.get("name")
+            if name in seen:
+                errors.append(f"Duplicate flag name: {name!r}")
+            seen.add(name)
+    return errors
+
+
 def check_model_catalog(doc: Any) -> list[str]:
     """Validate model catalog semantics."""
     errors: list[str] = []
@@ -244,6 +329,29 @@ def check_model_catalog(doc: Any) -> list[str]:
                     errors.append(f"Duplicate model id: {mid!r}")
                 if mid is not None:
                     seen_ids.add(mid)
+    return errors
+
+
+def check_works_registry(doc: Any) -> list[str]:
+    """Validate works registry semantics."""
+    errors: list[str] = []
+    if not isinstance(doc, dict):
+        return errors
+    works = doc.get("works", [])
+    if isinstance(works, list):
+        seen_keys: set[str] = set()
+        for w in works:
+            if isinstance(w, dict):
+                k = w.get("work_key")
+                if k in seen_keys:
+                    errors.append(f"Duplicate work_key: {k!r}")
+                if k is not None:
+                    seen_keys.add(k)
+                p = w.get("path")
+                if p is not None:
+                    path_obj = Path(p)
+                    if not path_obj.is_absolute():
+                        errors.append(f"path must be an absolute path, got: {p!r}")
     return errors
 
 
@@ -285,5 +393,13 @@ SEMANTIC_CHECKS: dict[str, Callable[[Any], list[str]]] = _SemanticChecksDict({
     "summary": _no_op_check,
     "model_catalog": check_model_catalog,
     "controller_settings": _no_op_check,
+    "project": _no_op_check,
+    "chapters_order": _no_op_check,
+    "prohibited": _no_op_check,
+    "works_registry": check_works_registry,
+    "flags": check_flags,
+    "backgrounds": _no_op_check,
+    "script_rules": _no_op_check,
 })
+
 

@@ -27,6 +27,13 @@
         "properties": {
           "job_type": { "$ref": "common.schema.json#/$defs/job_type" },
           "summary": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "instruction": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+          "anchor": {
+            "oneOf": [
+              { "$ref": "common.schema.json#/$defs/anchor" },
+              { "type": "null" }
+            ]
+          },
           "depends_on": {
             "oneOf": [
               { "type": "integer", "minimum": 0 },
@@ -34,7 +41,7 @@
             ]
           }
         },
-        "required": ["job_type", "summary", "depends_on"]
+        "required": ["job_type", "summary", "instruction", "anchor", "depends_on"]
       }
     },
     "impact": {

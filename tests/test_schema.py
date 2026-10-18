@@ -4,15 +4,16 @@ import copy
 from pathlib import Path
 import pytest
 
-from novui.schema import SCHEMA_DIR, load_registry, validate, validate_or_raise
+from novui.schema import SCHEMA_DIR, bundle_schema, load_registry, validate, validate_or_raise
 from novui.semantics import SEMANTIC_CHECKS
 from novui.yamlio import load_yaml
+from jsonschema import Draft202012Validator
 
 import json
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "valid"
 
-ALL_15_SCHEMAS = [
+ALL_19_SCHEMAS = [
     "chapter",
     "plan",
     "integrity_review",
@@ -28,6 +29,10 @@ ALL_15_SCHEMAS = [
     "registry",
     "model_catalog",
     "controller_settings",
+    "project",
+    "chapters_order",
+    "prohibited",
+    "works_registry",
 ]
 
 
@@ -37,7 +42,7 @@ def test_load_registry_all_schemas() -> None:
     assert registry is not None
 
 
-@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
 def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     # 各正例フィクスチャが検証エラー0件、かつ semantics エラー0件
     path = FIXTURES_DIR / f"{schema_name}.yaml"
@@ -54,14 +59,17 @@ def test_valid_fixtures_pass_schema_and_semantics(schema_name: str) -> None:
     validate_or_raise(doc, schema_name)
 
 
-@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
 def test_missing_required_property_fails(schema_name: str) -> None:
+    schema_file = SCHEMA_DIR / f"{schema_name}.schema.json"
+    schema_data = json.loads(schema_file.read_text(encoding="utf-8"))
+
+    if schema_data.get("type") == "array" and "$ref" in schema_data.get("items", {}):
+        pytest.skip(f"Schema {schema_name} is an array of scalar/ref values without required properties")
+
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
     corrupted = copy.deepcopy(doc)
-
-    schema_file = SCHEMA_DIR / f"{schema_name}.schema.json"
-    schema_data = json.loads(schema_file.read_text(encoding="utf-8"))
 
     if isinstance(corrupted, dict):
         required_keys = schema_data.get("required", [])
@@ -87,7 +95,7 @@ def test_missing_required_property_fails(schema_name: str) -> None:
     assert len(errors) > 0, f"Expected validation error for missing property in {schema_name}"
 
 
-@pytest.mark.parametrize("schema_name", ALL_15_SCHEMAS)
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
 def test_additional_property_rejected(schema_name: str) -> None:
     path = FIXTURES_DIR / f"{schema_name}.yaml"
     doc = load_yaml(path)
@@ -96,6 +104,8 @@ def test_additional_property_rejected(schema_name: str) -> None:
     if isinstance(corrupted, dict):
         corrupted["unexpected_extra_field"] = "some_value"
     elif isinstance(corrupted, list) and corrupted:
+        if not isinstance(corrupted[0], dict):
+            pytest.skip(f"Schema {schema_name} is an array of non-object items")
         corrupted[0]["unexpected_extra_field"] = "some_value"
 
     errors = validate(corrupted, schema_name)
@@ -212,3 +222,253 @@ def test_job_record_with_cli_info() -> None:
     del missing_actual["cli"]["actual_model"]
     assert len(validate(missing_actual, "job_record")) > 0
 
+
+def _assert_no_external_refs(node: object) -> None:
+    if isinstance(node, dict):
+        if "$ref" in node:
+            ref = node["$ref"]
+            assert isinstance(ref, str)
+            assert ref.startswith("#/"), f"External or non-#/ $ref found: {ref!r}"
+        for v in node.values():
+            _assert_no_external_refs(v)
+    elif isinstance(node, list):
+        for item in node:
+            _assert_no_external_refs(item)
+
+
+NEGATIVE_SAMPLES: dict[str, object] = {
+    "chapter": {"id": "ch-001"},
+    "plan": {"chapter_id": "ch-001"},
+    "integrity_review": {"chapter_id": "ch-001"},
+    "writing_review": {"chapter_id": "ch-001"},
+    "review": {"chapter_id": "ch-001"},
+    "requests": [{"type": "unknown_type"}],
+    "summary": {"chapter_id": "ch-001"},
+    "state_patch": {"patch_id": "P-001"},
+    "instruction_routing": {"instruction_id": "I-001"},
+    "approval": {"approval_id": "A-0001"},
+    "job_record": {"job_id": "job-1"},
+    "character": {"id": "C001"},
+    "registry": [{"id": "INVALID"}],
+    "model_catalog": {"fetched_at": "not-a-datetime"},
+    "controller_settings": {"format_version": 999},
+    "project": {"work_key": "INVALID KEY!"},
+    "chapters_order": ["invalid-chapter-id"],
+    "prohibited": {"terms": "not-a-list"},
+    "works_registry": {"format_version": 1, "works": "not-a-dict"},
+}
+
+
+@pytest.mark.parametrize("schema_name", ALL_19_SCHEMAS)
+def test_bundle_schema_all_19(schema_name: str) -> None:
+    bundled = bundle_schema(schema_name)
+    assert "$id" not in bundled
+    assert "$schema" in bundled
+
+    # 1. Draft202012Validator.check_schema を通る
+    Draft202012Validator.check_schema(bundled)
+
+    # 2. #/ で始まらない $ref を含まない
+    _assert_no_external_refs(bundled)
+
+    # 3. tests/fixtures/valid/ の正例が bundle 後の schema（registry なし）で検証エラー0件
+    fixture_path = FIXTURES_DIR / f"{schema_name}.yaml"
+    assert fixture_path.is_file()
+    valid_doc = load_yaml(fixture_path)
+    validator = Draft202012Validator(bundled)
+    errors = list(validator.iter_errors(valid_doc))
+    assert errors == [], f"Validation errors on valid fixture with bundled {schema_name}: {errors}"
+
+    # 4. 負例でエラーになる
+    neg_doc = NEGATIVE_SAMPLES[schema_name]
+    neg_errors = list(validator.iter_errors(neg_doc))
+    assert len(neg_errors) > 0, f"Expected validation failure for negative sample on {schema_name}"
+
+
+def test_bundle_schema_unknown_and_invalid_ref(tmp_path: Path) -> None:
+    # 存在しないスキーマ名で ValueError
+    with pytest.raises(ValueError, match="Unknown schema"):
+        bundle_schema("non_existent_schema")
+
+    # 不正な $ref 形式で ValueError
+    bad_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "foo": {"$ref": "#/properties/bar"},
+        },
+    }
+    schema_dir = tmp_path / "bad_schemas"
+    schema_dir.mkdir()
+    (schema_dir / "bad.schema.json").write_text(json.dumps(bad_schema), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid or unsupported \\$ref"):
+        bundle_schema("bad", schema_dir=schema_dir)
+
+
+
+
+# 2-D2：integrity_review の finding の character（phase2d-design 決定 1）
+
+def _integrity_with(finding: dict, check: str = "character") -> dict:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "integrity_review.yaml"))
+    doc["result"] = "WARNING"
+    doc["checks"][check] = {"result": "WARNING", "findings": [finding]}
+    return doc
+
+
+def _finding(**overrides: object) -> dict:
+    f = {"severity": "WARNING", "anchor": None, "message": "m", "character": None, "evidence": []}
+    f.update(overrides)
+    return f
+
+
+CHAR = {"character_id": "C001", "rule": "address.C002", "expected": "美咲", "actual": "美咲ちゃん", "scene": "S1"}
+
+
+def test_integrity_finding_character_null_and_object() -> None:
+    assert validate(_integrity_with(_finding()), "integrity_review") == []
+    assert validate(_integrity_with(_finding(character=CHAR)), "integrity_review") == []
+
+
+def test_integrity_finding_character_required() -> None:
+    f = _finding()
+    del f["character"]
+    assert validate(_integrity_with(f), "integrity_review") != []
+
+
+@pytest.mark.parametrize("key", ["character_id", "rule", "expected", "actual", "scene"])
+def test_integrity_finding_character_fields_required(key: str) -> None:
+    c = dict(CHAR)
+    del c[key]
+    assert validate(_integrity_with(_finding(character=c)), "integrity_review") != []
+
+
+@pytest.mark.parametrize(
+    "key,value", [("character_id", "X1"), ("scene", "1"), ("expected", ""), ("extra", "x")]
+)
+def test_integrity_finding_character_invalid_values(key: str, value: str) -> None:
+    c = dict(CHAR)
+    c[key] = value
+    assert validate(_integrity_with(_finding(character=c)), "integrity_review") != []
+
+
+# --- 2-E1：台本の形式の schema（phase2e-design §2・§3、script-format） ---
+
+def test_project_text_format() -> None:
+    base = {"format_version": 1, "work_key": "w", "title": "t"}
+    assert validate(base, "project") == []
+    assert validate({**base, "text_format": "script"}, "project") == []
+    assert validate({**base, "text_format": "novel"}, "project") == []
+    assert validate({**base, "text_format": "game"}, "project") != []
+
+
+@pytest.mark.parametrize("name,ok", [
+    ("カイ", True), ("門番A", True), ("Kai", True),
+    ("カイ 二世", False), ("@カイ", False), ("-カイ", False), ("<カイ", False),
+    ("カ「イ", False), ("［カイ", False), ("カ（イ", False), ("", False),
+])
+def test_character_display_name(name: str, ok: bool) -> None:
+    errs = validate({"id": "C001", "name": "a", "display_name": name}, "character")
+    assert (errs == []) is ok
+
+
+@pytest.mark.parametrize("exprs,ok", [
+    (["通常"], True), (["通常", "笑顔"], True), ([], False), (["通常", "通常"], False),
+    (["通 常"], False), (["通常］"], False),
+])
+def test_character_expressions(exprs: list, ok: bool) -> None:
+    assert (validate({"id": "C001", "name": "a", "expressions": exprs}, "character") == []) is ok
+
+
+def _plan_with(**scene_extra: object) -> dict:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "plan.yaml"))
+    doc["scenes"][0].update(scene_extra)
+    return doc
+
+
+@pytest.mark.parametrize("extra,ok", [
+    ({"background": "市場_昼"}, True),
+    ({"background": "市場 昼"}, False),
+    ({"extras": ["門番", "店主"]}, True),
+    ({"extras": ["門番", "門番"]}, False),
+    ({"extras": ["門 番"]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "flag": "f1"}, {"text": "b", "goto": "S3"}]}, True),
+    ({"choice": [{"text": "a", "goto": "S2"}]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "flag": "Bad"}, {"text": "b", "goto": "S3"}]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "flag": "not"}, {"text": "b", "goto": "S3"}]}, False),
+    ({"choice": [{"text": "a", "goto": "S2", "x": 1}, {"text": "b", "goto": "S3"}]}, False),
+    ({"next": "S3"}, True),
+    ({"next": "3"}, False),
+])
+def test_plan_scene_script_fields(extra: dict, ok: bool) -> None:
+    assert (validate(_plan_with(**extra), "plan") == []) is ok
+
+
+def test_flags_schema() -> None:
+    good = [{"name": "market_together", "description": "市場を一緒に回った", "notes": ""}]
+    assert validate(good, "flags") == []
+    assert validate([{"name": "market_together", "description": "d"}], "flags") != []
+    assert validate([{"name": "Market", "description": "d", "notes": ""}], "flags") != []
+    assert validate([{"name": "not", "description": "d", "notes": ""}], "flags") != []
+    assert validate([{"name": "notes", "description": "d", "notes": ""}], "flags") == []
+
+
+def test_backgrounds_and_script_rules_schema() -> None:
+    assert validate(["市場_昼", "港_夕"], "backgrounds") == []
+    assert validate(["市場_昼", "市場_昼"], "backgrounds") != []
+    assert validate(["市場 昼"], "backgrounds") != []
+    assert validate({"max_line_chars": 40}, "script_rules") == []
+    assert validate({}, "script_rules") == []
+    assert validate({"max_line_chars": 0}, "script_rules") != []
+    assert validate({"other": 1}, "script_rules") != []
+
+
+# --- 2-E1 追補：engine_id・title（phase2e-design §10.3） ---
+
+@pytest.mark.parametrize("eid,ok", [("kiyoshi", True), ("father_ex_member", True), ("Kiyoshi", False), ("1abc", False), ("a-b", False)])
+def test_character_engine_id(eid: str, ok: bool) -> None:
+    assert (validate({"id": "C001", "name": "a", "engine_id": eid}, "character") == []) is ok
+
+
+@pytest.mark.parametrize("extra,ok", [
+    ({"engine_id": "scene_00_prologue"}, True), ({"engine_id": "Scene-1"}, False),
+    ({"title": "否定の流儀"}, True), ({"title": ""}, False),
+])
+def test_plan_scene_engine_id_and_title(extra: dict, ok: bool) -> None:
+    assert (validate(_plan_with(**extra), "plan") == []) is ok
+
+
+# --- 2-F1：設定の変化の条件 when（phase2f-design §2.2） ---
+
+@pytest.mark.parametrize("when,ok", [
+    ("market_together", True), ("not market_together", True),
+    ("not", False), ("not not f", False), ("Market", False), ("f and g", False), ("", False),
+])
+def test_when_condition(when: str, ok: bool) -> None:
+    change = {"value": "君", "from": {"chapter": "ch-001", "scene": "S2"}, "reason": "r", "when": when}
+    char = {"id": "C001", "name": "a", "address": {"C002": {"default": "美咲", "changes": [change]}},
+            "relationships": [{"with": "C002", "state": "友人", "changes": [change]}],
+            "knowledge": [{"id": "K001", "fact": "f", "source_chapter": "ch-001", "when": when}]}
+    assert (validate(char, "character") == []) is ok
+    reg = copy.deepcopy(load_yaml(FIXTURES_DIR / "registry.yaml"))
+    reg[0]["introduced"] = [{"chapter": "ch-001", "scene": "S2", "when": when}]
+    assert (validate(reg, "registry") == []) is ok
+
+
+def test_planned_resolution_has_no_when() -> None:
+    reg = copy.deepcopy(load_yaml(FIXTURES_DIR / "registry.yaml"))
+    reg[0]["planned_resolution"] = {"chapter": "ch-001", "scene": "S2", "when": "f"}
+    assert validate(reg, "registry") != []
+
+
+def test_summary_branches() -> None:
+    doc = copy.deepcopy(load_yaml(FIXTURES_DIR / "summary.yaml"))
+    assert validate(doc, "summary") == []
+    doc["branches"] = [{"scenes": ["S2"], "when": "market_together", "events": ["S2 二人で市場を回る"]},
+                       {"scenes": ["S3"], "when": None, "events": ["S3 船を見る"]}]
+    assert validate(doc, "summary") == []
+    for bad in ({"scenes": [], "when": None, "events": ["e"]}, {"scenes": ["S2"], "when": "Bad", "events": ["e"]},
+                {"scenes": ["S2"], "when": None, "events": []}, {"scenes": ["S2"], "events": ["e"]}):
+        doc["branches"] = [bad]
+        assert validate(doc, "summary") != [], bad

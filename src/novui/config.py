@@ -22,6 +22,7 @@ class Settings:
     timeouts: Mapping[str, int]
     git_name: str = "NovUI Controller"
     git_email: str = "novui@localhost"
+    claude_model: str = "opus"
 
 
 def _resolve_abs_path(val: str, var_name: str) -> Path:
@@ -45,11 +46,14 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     raw_token_path = env.get("NOVUI_AGY_TOKEN", "~/.gemini/antigravity-cli/antigravity-oauth-token")
     raw_git_name = env.get("NOVUI_GIT_NAME", "NovUI Controller")
     raw_git_email = env.get("NOVUI_GIT_EMAIL", "novui@localhost")
+    raw_claude_model = env.get("NOVUI_CLAUDE_MODEL", "opus")
 
     if not raw_git_name:
         raise ValueError("NOVUI_GIT_NAME must not be empty")
     if not raw_git_email:
         raise ValueError("NOVUI_GIT_EMAIL must not be empty")
+    if not raw_claude_model:
+        raise ValueError("NOVUI_CLAUDE_MODEL must not be empty")
 
     data_dir = _resolve_abs_path(raw_data_dir, "NOVUI_DATA_DIR")
     token_path = _resolve_abs_path(raw_token_path, "NOVUI_AGY_TOKEN")
@@ -66,4 +70,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         timeouts=DEFAULT_TIMEOUTS,
         git_name=raw_git_name,
         git_email=raw_git_email,
+        claude_model=raw_claude_model,
     )

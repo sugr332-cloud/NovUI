@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/script_rules.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "max_line_chars": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

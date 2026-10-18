@@ -1,0 +1,134 @@
+# 台本の形式（NovUI script format v1.1）
+
+**作成：2026-10-09 / 設計：docs/phase2/phase2e-design.md**
+
+この文書は、NovUI で書く台本（各章の `chapters/<章 ID>/draft.md`）の形式の定義である。AI と Human はこの形式で書き、NovUI の検査もこの形式で行う。
+
+ゲームのエンジン（cruway/novel_game、Flutter）は場面ごとの YAML を読む。NovUI は、最終承認した章をエンジンの YAML に**書き出す**（§6）。形式を変えるときは、この文書の版を上げる。
+
+* v1.1（2026-10-12）：エンジンの確認を受けて、背景を場面に1つにした。人物の `engine_id`、表情をエンジンの名前にすること、書き出し（§6）を足した。
+
+作品の `project.yaml` が `text_format: script` のときだけ、この形式を使う（`novel` のときは普通の小説の本文）。
+
+---
+
+## 1. ファイルと章の順序
+
+* 文字コードは UTF-8、改行は LF。
+* 章の順序は、作品の直下の `chapters-order.yaml`（章 ID の配列）。エンジンはこの順に章を読む。
+* 1つの章のファイルは、場面の並び。場面は `<!-- scene: S1 -->` の行で始まる。
+* 人物の情報は `characters/<人物 ID>.yaml`（`display_name`・`expressions`）、背景の名前の一覧は `assets/backgrounds.yaml`、フラグの一覧は `flags/registry.yaml`。
+
+## 2. 行の種類
+
+1行は必ず次のどれか1つ。行の前後の空白は取り除いてから判定する。空行は無視する（意味を持たない）。
+
+| 種類 | 形（正規表現） | 例 |
+|---|---|---|
+| 場面の区切り | `^<!-- scene: (S[0-9]+) -->$` | `<!-- scene: S1 -->` |
+| 背景 | `^@bg (\S+)$` | `@bg bg_market_day` |
+| 登場 | `^@enter (C[0-9]{3,}) (left\|center\|right)(?: (\S+))?$` | `@enter C001 left neutral` |
+| 退場 | `^@exit (C[0-9]{3,})$` | `@exit C002` |
+| 表情 | `^@face (C[0-9]{3,}) (\S+)$` | `@face C002 angry` |
+| 選択肢の開始 | `^@choice$` | `@choice` |
+| 選択肢 | `^- (.+?) -> (S[0-9]+)(?: \+(<フラグ名>))?$` | `- 一緒に市場を回る -> S2 +market_together` |
+| 移動 | `^@goto (S[0-9]+)$` | `@goto S4` |
+| 条件の開始 | `^@if (not )?(<フラグ名>)$` | `@if market_together` |
+| 条件の他方 | `^@else$` | `@else` |
+| 条件の終わり | `^@endif$` | `@endif` |
+| 台詞 | `^([^\s@<\-［「（][^\s［「（]*)(?:［([^］\s]+)］)?「(.*)」$` | `カイ［surprised］「美咲、何してるんだ」` |
+| 心の声 | `^([^\s@<\-［「（][^\s［「（]*)(?:［([^］\s]+)］)?（(.*)）$` | `カイ（言えるわけがない）` |
+| 地の文 | 上のどれにも当たらず、`@`・`<!--`・`- ` で始まらない行 | `カイは港の市場で美咲を見つけた。` |
+
+* `<フラグ名>` は `[a-z][a-z0-9_]{0,63}` で、`not` は使えない（`@if not` の読み違いを避けるため）。
+* `@` で始まり上のどれにも当たらない行、`<!--` で始まり場面の区切りでない行、`@choice` の後以外の `- ` で始まる行は**誤り**（エンジンは読めない）。
+* 台詞・心の声の頭は**表示名**（`characters/<ID>.yaml` の `display_name`、または名前のない端役の名前）。表示名に空白と `［「（` は使えない。
+* `［］`・`「」`・`（）` は全角。台詞の中で引用するときは `『』` を使う（`「` を入れ子にしない）。
+* 地の文が `」` や `）` で終わると台詞・心の声と読まれる（例：`看板には「準備中」` は話者「看板には」の台詞になる）。地の文は句点で終える（`看板には「準備中」とあった。`）。
+* 【要確認：…】は NovUI の作業の途中にだけ現れる印で、完成した台本には残らない。
+
+## 3. 場面の中の規則
+
+* **場面の始まりで、背景と立ち絵は空になる**（前の場面から引き継がない。分岐のどの道から来ても同じ状態にするため）。
+* **背景は場面に1つ。** `@bg` は場面の最初の行に1回だけ置く（エンジンは場面ごとに背景を1つ持つ）。背景を変えたいときは場面を分ける。`@bg` の無い場面は、背景の無い場面になる。
+* 表情の名前は、エンジンの表情の名前（`neutral`・`thinking` など）。人物ごとに `characters/<ID>.yaml` の `expressions` に登録する。
+* 立ち位置は left・center・right の3つ。同じ位置に2人を出さない（出した場合、エンジンは後から出した方で置き換える）。
+* `@enter` で表情を省くと、その人物の `expressions` の先頭（既定の表情）。
+* 台詞・心の声の `［表情］` は、その人物の表情を変える。変えた表情は、次に変えるまで続く（同じ場面の中）。表情の名前は、その人物の `expressions` にあるもの。
+* 立ち絵の無い人物（端役、`@enter` していない人物）の台詞もよい（画面外の声として扱う）。NovUI は意図しない場合に備えて検査で知らせる。
+* 場面の最後の行（空行を除く）は、次のどれか：
+  - `@choice` と、続く2つ以上の選択肢の行
+  - `@goto <場面 ID>`
+  - それ以外（次は、ファイルの中で次の場面。最後の場面なら章の終わり）
+* 選択肢と `@goto` の行き先は、**同じ章の、自分より後ろの場面**。ループは無い。
+
+## 4. フラグ
+
+* フラグは真偽値。作品全体で名前が一意で、`flags/registry.yaml` に登録されている。初めはすべて偽。
+* 選択肢の行の `+<フラグ>` は、その選択肢を選んだときにそのフラグを真にする。一度真にしたフラグは偽に戻らない。フラグは章をまたいで残る（セーブデータに含める）。
+* `@if <フラグ>` はフラグが真のとき、`@if not <フラグ>` は偽のときに、`@else` または `@endif` までの行を表示する。`@else` から `@endif` までは、その逆のとき。
+* `@if` は入れ子にしない。`@if` の中に置けるのは、台詞・心の声・地の文・`@face` だけ（`@bg`・`@enter`・`@exit`・`@choice`・`@goto`・場面の区切りは置けない）。
+
+## 5. 例
+
+```text
+<!-- scene: S1 -->
+@bg bg_market_day
+@enter C001 left neutral
+@enter C002 right happy
+カイは港の市場で美咲を見つけた。
+カイ［surprised］「美咲、こんなところで何してるんだ」
+美咲「私は魚を買いに来たの。カイこそ、どうしたの」
+カイ（言えるわけがない）
+@choice
+- 一緒に市場を回る -> S2 +market_together
+- 船を見に行く -> S3
+
+<!-- scene: S2 -->
+@bg bg_market_day
+@enter C001 left happy
+@enter C002 right happy
+二人は市場を歩いた。
+@goto S4
+
+<!-- scene: S3 -->
+@bg bg_harbor_day
+@enter C001 center neutral
+カイは一人で船を眺めた。
+
+<!-- scene: S4 -->
+@bg bg_gate_evening
+@enter C001 left neutral
+@enter C002 right neutral
+@if market_together
+カイ「君と回れて楽しかった」
+@else
+カイ「美咲、船はすごかったぞ」
+@endif
+美咲「また明日ね」
+```
+
+S3 の次は、ファイルの中で次の場面の S4。
+
+## 6. エンジンの YAML への書き出し
+
+NovUI は、最終承認（FINAL）した章を、エンジンの `dialogues` 形式（第1章の形式）の場面ファイルと `_meta.yaml` に書き出す。
+
+| NovUI | エンジン |
+|---|---|
+| 章（`ch-001`） | `assets/scripts/<ルート>/chapter_01/`。ルートは書き出しの指定（既定 `common`） |
+| 場面（`S1`） | `<場面の engine_id>.yaml`。engine_id は plan の場面の `engine_id`（無ければ `scene_00` から plan の順に連番） |
+| 章の場面の並び | `_meta.yaml` の `chapter.scenes` |
+| `@bg` | `scene.background` |
+| 最初の台詞より前の `@enter` | `scene.characters.initial` |
+| 人物 ID（`C001`） | 人物の `engine_id`（例 `kiyoshi`） |
+| 台詞 | `{speaker: <engine_id>, text, emotion}` |
+| 心の声 | `{type: thought, speaker: <engine_id>, text, emotion}` |
+| 地の文 | `{type: narration, text}` |
+| 端役の台詞 | `{speaker: <表示名>, text}` |
+| 台詞の間の `@enter`・`@exit`・`@face` | 次の台詞の `characters: {add: [...], remove: [...], update: [...]}` |
+| `@if f`・`@if not f`・`@else` の中の行 | その行に `condition: f`・`condition: "!f"` |
+| `@choice` と選択肢 | 場面の最後の台詞の `choices: [{text, next_scene, set_flag}]` |
+| `@goto`・次の場面 | 場面ファイルの `next_scene`（選択肢の場面と最後の場面は null） |
+
+* 書き出しに必要で、エンジンにまだ無いもの（エンジン側で足す）：台詞の行の `condition`、`characters.update` の読み込み。phase2e-design §10.4 を参照。端役の名前は、エンジンが登録の無い話者 ID をそのまま表示するので、そのままでよい。

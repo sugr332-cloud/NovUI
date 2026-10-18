@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/backgrounds.schema.json",
+  "type": "array",
+  "uniqueItems": true,
+  "items": {
+    "type": "string",
+    "pattern": "^\\S+$"
+  }
+}

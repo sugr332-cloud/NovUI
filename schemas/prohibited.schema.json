@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/prohibited.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "phrases": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/nonempty_string"
+      }
+    },
+    "repeated_ending_threshold": {
+      "type": "integer",
+      "minimum": 2
+    }
+  },
+  "required": [
+    "phrases",
+    "repeated_ending_threshold"
+  ]
+}

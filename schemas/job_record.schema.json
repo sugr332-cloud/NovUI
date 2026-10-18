@@ -46,6 +46,46 @@
         { "type": "null" }
       ]
     },
+    "edit": {
+      "description": "range_edit / chapter_rewrite: what was edited and why (phase2d5-design §2.5)",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/anchor" },
+            { "type": "null" }
+          ]
+        },
+        "range_bytes": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            { "type": "null" }
+          ]
+        },
+        "reason": { "$ref": "common.schema.json#/$defs/nonempty_string" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["finding", "instruction", "human"]
+            },
+            "review_job": { "$ref": "common.schema.json#/$defs/job_id" },
+            "finding": { "type": "string", "pattern": "^[IW][0-9]+$" },
+            "instruction_id": { "$ref": "common.schema.json#/$defs/instruction_id" }
+          },
+          "required": ["kind"]
+        }
+      },
+      "required": ["anchor", "range_bytes", "reason", "source"]
+    },
     "context": {
       "type": "array",
       "items": {

@@ -18,15 +18,15 @@
       },
       "introduced": {
         "type": "array",
-        "items": { "$ref": "common.schema.json#/$defs/position" }
+        "items": { "$ref": "common.schema.json#/$defs/conditional_position" }
       },
       "hints": {
         "type": "array",
-        "items": { "$ref": "common.schema.json#/$defs/position" }
+        "items": { "$ref": "common.schema.json#/$defs/conditional_position" }
       },
       "developments": {
         "type": "array",
-        "items": { "$ref": "common.schema.json#/$defs/position" }
+        "items": { "$ref": "common.schema.json#/$defs/conditional_position" }
       },
       "planned_resolution": {
         "oneOf": [
@@ -36,7 +36,7 @@
       },
       "resolved": {
         "oneOf": [
-          { "$ref": "common.schema.json#/$defs/position" },
+          { "$ref": "common.schema.json#/$defs/conditional_position" },
           { "type": "null" }
         ]
       },

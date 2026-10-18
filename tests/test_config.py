@@ -16,6 +16,7 @@ def test_default_settings() -> None:
     assert settings.timeouts == DEFAULT_TIMEOUTS
     assert settings.git_name == "NovUI Controller"
     assert settings.git_email == "novui@localhost"
+    assert settings.claude_model == "opus"
 
 
 def test_env_override_and_tilde_expansion() -> None:
@@ -25,6 +26,7 @@ def test_env_override_and_tilde_expansion() -> None:
         "NOVUI_AGY_TOKEN": "~/custom_token",
         "NOVUI_GIT_NAME": "Custom Bot",
         "NOVUI_GIT_EMAIL": "bot@example.com",
+        "NOVUI_CLAUDE_MODEL": "sonnet",
     }
     settings = load_settings(env)
     assert settings.data_dir == Path.home() / "custom_novui"
@@ -34,6 +36,7 @@ def test_env_override_and_tilde_expansion() -> None:
     assert settings.agy_token_path == Path.home() / "custom_token"
     assert settings.git_name == "Custom Bot"
     assert settings.git_email == "bot@example.com"
+    assert settings.claude_model == "sonnet"
 
 
 def test_relative_path_raises_value_error() -> None:
@@ -50,6 +53,9 @@ def test_empty_git_config_raises_value_error() -> None:
 
     with pytest.raises(ValueError, match="NOVUI_GIT_EMAIL"):
         load_settings({"NOVUI_GIT_EMAIL": ""})
+
+    with pytest.raises(ValueError, match="NOVUI_CLAUDE_MODEL"):
+        load_settings({"NOVUI_CLAUDE_MODEL": ""})
 
 
 def test_load_settings_does_not_create_files(tmp_path: Path) -> None:

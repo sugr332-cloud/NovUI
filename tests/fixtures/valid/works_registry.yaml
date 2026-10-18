@@ -1,0 +1,9 @@
+works:
+  - work_key: "work-1"
+    path: "/absolute/path/to/work-1"
+    format_version: 1
+    state: "active"
+  - work_key: "work-2"
+    path: "/absolute/path/to/work-2"
+    format_version: 1
+    state: "archived"
