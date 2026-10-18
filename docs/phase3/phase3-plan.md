@@ -79,8 +79,25 @@ Phase 3 でも Web UI は作らない。Human の操作は CLI で行う。
 
 | # | 内容 | 推奨案 | 決定 |
 |---|---|---|---|
-| 1 | Phase 3 のブランチ | `phase3/state-git` を main から切り、AGY の push もここだけにする | |
-| 2 | setting_change の書き先 | 章の作業ブランチではなく main に直接（承認記録付きの Controller の commit）。章の作業ブランチと同じ target を変えた場合、その章の state_update の提案は base_hash が合わなくなり invalid になる | |
-| 3 | 直接編集の操作 | Phase 3 は CLI（Human が作業ツリーで直し、`edit` で commit）。エディタの画面は Phase 4 | |
-| 4 | push の試験 | ローカルの bare リポジトリを origin にする。GitHub への実際の push は Phase 5 で確かめる | |
-| 5 | 正気度・ルート・視点ごとの台詞（2-E 決定 9） | Phase 3 には入れない。別に設計する | |
+| 1 | Phase 3 のブランチ | `phase3/state-git` を main から切り、AGY の push もここだけにする | 推奨案（2026-10-18） |
+| 2 | setting_change の書き先 | 章の作業ブランチではなく main に直接（承認記録付きの Controller の commit）。章の作業ブランチと同じ target を変えた場合、その章の state_update の提案は base_hash が合わなくなり invalid になる | 推奨案（2026-10-18） |
+| 3 | 直接編集の操作 | Phase 3 は CLI（Human が作業ツリーで直し、`edit` で commit）。エディタの画面は Phase 4 | 推奨案（2026-10-18） |
+| 4 | push の試験 | ローカルの bare リポジトリを origin にする。GitHub への実際の push は Phase 5 で確かめる | 推奨案（2026-10-18） |
+| 5 | 正気度・ルート・視点ごとの台詞（2-E 決定 9） | Phase 3 には入れない。別に設計する | 推奨案（2026-10-18） |
+
+## 6. 設計の補足
+
+### 6.1 要確認フラグの置き場所（3-A）
+
+章の chapter.yaml の「今の値」は、作業ブランチがあれば作業ブランチの chapter.yaml、無ければ main の chapter.yaml とする（§2 の Phase 2 の扱いのまま）。要確認の値もここに書く。作業ブランチがある章の要確認を main に書くと、作業ブランチの chapter.yaml と重なり、最終承認の merge が overlap で止まるため。final_approve は今も main と作業ブランチの値の OR を見ている。
+
+### 6.2 「前の章の内容変更」で要確認を立てる時点（3-A、3-C）
+
+後続の章が読むのは main の本文と summary なので、要確認は変更が main に入った時点で立てる。
+
+* FINAL の章を開き直したサイクル（plan_revision・range_edit・chapter_rewrite）：その最終承認の merge の時点で、後続の章すべてに立てる。plan だけの変更では立てない。
+* 直接編集（3-C）の `content`：main への commit の時点で、後続の章すべてに立てる。
+
+### 6.3 main への commit の保護（3-A）
+
+作業ブランチの各 commit に当てていた承認記録の検査（finalize.audit_protected_changes）を共通の関数にし、Controller が main に作る commit（commit_all）にも当てる。違いは、main では `NovUI-Edit: human-*` も受け付けること。承認記録の `job_id` は、null でないときだけ `NovUI-Job` の trailer と照合する（setting_change の承認は Job ではなく指示から生じるため）。
