@@ -64,6 +64,15 @@ def test_rule3_allow_edit_with_edit_trailer() -> None:
     assert v_false and "NovUI-Edit is not accepted on a job branch" in v_false[0]
 
 
+def test_rule3_allow_edit_with_unsafe_path() -> None:
+    # NovUI-Edit 付きで安全でないパスを含む変更が違反になること
+    changes = [("M", "world/setting.yaml"), ("M", "../unsafe.yaml")]
+    trailers = {"NovUI-Edit": ["human-content"]}
+    v = audit_changes(changes, trailers, lambda p: b"", lambda i: False, allow_edit=True)
+    assert len(v) == 1
+    assert "unsafe path '../unsafe.yaml'" in v[0]
+
+
 def test_rule4_no_approval_id() -> None:
     changes = [("M", "world/setting.yaml")]
     # allow_edit=True

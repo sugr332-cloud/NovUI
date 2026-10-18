@@ -11,6 +11,7 @@ from novui.chapters import (
     read_chapter_meta,
     read_chapters_order,
     review_marked,
+    review_only_since,
     subsequent_chapters,
 )
 from novui.cli import main
@@ -399,3 +400,108 @@ def test_cli_review_done_and_show(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert rc_show2 == 0
     out_show2 = capsys.readouterr().out
     assert "(review required)" not in out_show2
+
+
+# =====================================================================
+# review_only_since & approve_state 連携
+# =====================================================================
+
+def test_review_only_since_unit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run_git(repo, "init", "-b", "main")
+    ch_yaml = repo / "chapters" / "ch-001" / "chapter.yaml"
+    ch_yaml.parent.mkdir(parents=True)
+    meta = {
+        "id": "ch-001",
+        "title": "第一章",
+        "state": "AI_VALIDATED",
+        "review_required": False,
+        "review_reasons": [],
+        "validation_skipped": False,
+        "last_job": "job-1",
+    }
+    write_yaml_atomic(ch_yaml, meta)
+    run_git(repo, "add", ".")
+    run_git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init")
+    base = head_commit(repo, "HEAD")
+
+    # base == head
+    assert review_only_since(repo, base, base, "ch-001") is True
+
+    # 1件目：要確認の commit (review_required を True に)
+    meta["review_required"] = True
+    meta["review_reasons"] = [{"code": "setting_changed", "detail": "d", "at": "2026-10-18T10:00:00+09:00"}]
+    write_yaml_atomic(ch_yaml, meta)
+    run_git(repo, "add", ".")
+    run_git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "mark 1")
+    c1 = head_commit(repo, "HEAD")
+    assert review_only_since(repo, base, c1, "ch-001") is True
+
+    # 2件目：要確認の commit (review_required を False に)
+    meta["review_required"] = False
+    meta["review_reasons"] = []
+    write_yaml_atomic(ch_yaml, meta)
+    run_git(repo, "add", ".")
+    run_git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "clear 1")
+    c2 = head_commit(repo, "HEAD")
+    assert review_only_since(repo, base, c2, "ch-001") is True
+
+    # state も変えた commit -> False
+    meta["state"] = "HUMAN_APPROVED"
+    write_yaml_atomic(ch_yaml, meta)
+    run_git(repo, "add", ".")
+    run_git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "state change")
+    c_state = head_commit(repo, "HEAD")
+    assert review_only_since(repo, base, c_state, "ch-001") is False
+
+    # 他のファイルを変えた commit -> False
+    (repo / "other.txt").write_text("hello", encoding="utf-8")
+    run_git(repo, "add", ".")
+    run_git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "other file")
+    c_other = head_commit(repo, "HEAD")
+    assert review_only_since(repo, base, c_other, "ch-001") is False
+
+    # base が祖先でない場合 -> False
+    run_git(repo, "checkout", "-b", "other_branch", base)
+    (repo / "new.txt").write_text("branch", encoding="utf-8")
+    run_git(repo, "add", ".")
+    run_git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "branch commit")
+    c_branch = head_commit(repo, "HEAD")
+    assert review_only_since(repo, c_branch, c1, "ch-001") is False
+
+
+def test_approve_state_with_review_required(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("novui.jobrunner.image_label", lambda img, key: "1.2.14")
+    monkeypatch.setattr(
+        "novui.jobrunner.image_id",
+        lambda img: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    )
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_stateupdate import _proposed, CH
+    from novui.stateupdate import approve_state
+    from novui.validatejob import _read_branch_chapter_meta, find_chapter_branch
+
+    # 1. mark_review_required の後
+    case1 = tmp_path / "case1"
+    case1.mkdir(parents=True, exist_ok=True)
+    settings, work, rec = _proposed(case1)
+    mark_review_required(settings, work, [CH], "previous_chapter_changed", "前章の変更")
+    done = approve_state(settings, work, CH)
+    assert done["state"] == "COMPLETED"
+    branch = find_chapter_branch(work.path, CH)
+    b_meta = _read_branch_chapter_meta(work.path, branch, CH)
+    assert b_meta["state"] == "HUMAN_APPROVED"
+
+    # 2. clear_review_required の後
+    case2 = tmp_path / "case2"
+    case2.mkdir(parents=True, exist_ok=True)
+    settings2, work2, rec2 = _proposed(case2)
+    mark_review_required(settings2, work2, [CH], "previous_chapter_changed", "前章の変更")
+    clear_review_required(settings2, work2, CH)
+    done2 = approve_state(settings2, work2, CH)
+    assert done2["state"] == "COMPLETED"
+    branch2 = find_chapter_branch(work2.path, CH)
+    b_meta2 = _read_branch_chapter_meta(work2.path, branch2, CH)
+    assert b_meta2["state"] == "HUMAN_APPROVED"

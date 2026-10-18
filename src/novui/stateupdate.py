@@ -19,7 +19,7 @@ from novui.approvals import (
     is_approval_used,
     reserve_approval_id,
 )
-from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order
+from novui.chapters import ChapterError, ensure_main_ready, read_chapters_order, review_only_since
 from novui.checks import CheckResult, check_allowed_paths
 from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeCallOutcome, ClaudeRunner, claude_version, run_claude_call
@@ -491,7 +491,7 @@ def approve_state(settings: Settings, work: WorkInfo, chapter_id: str) -> dict[s
         approvals = trailers.get("Approval-Id", [])
         if (
             trailers.get("NovUI-Job") == [job_id]
-            and parent == proposal["branch_head"]
+            and review_only_since(worktree, proposal["branch_head"], parent, chapter_id)
             and len(approvals) == (1 if patches else 0)
         ):
             return _finish_approval(settings, work, proposal, record, approvals[0] if approvals else None)
@@ -500,7 +500,7 @@ def approve_state(settings: Settings, work: WorkInfo, chapter_id: str) -> dict[s
         raise ChapterError(f"state_update job {job_id} is {record['state']}, not WAITING_HUMAN")
 
     # 無効の検査（§2.7）
-    if head != proposal["branch_head"]:
+    if not review_only_since(worktree, proposal["branch_head"], head, chapter_id):
         _invalidate(settings, work, proposal, record,
                     f"branch head {head} differs from the proposal's branch_head {proposal['branch_head']}")
     if meta["state"] != ChapterState.AI_VALIDATED.name:

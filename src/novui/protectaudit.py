@@ -40,9 +40,9 @@ def audit_changes(
     if not protected:
         return violations
 
-    # 3. allow_edit が True で、NovUI-Edit の trailer があれば、空を返す。
+    # 3. allow_edit が True で、NovUI-Edit の trailer があれば、空を返す（安全でないパスの違反があればそれを返す）。
     if allow_edit and trailers.get("NovUI-Edit"):
-        return []
+        return violations
 
     # 4. Approval-Id が無ければ違反。
     approvals = trailers.get("Approval-Id", [])

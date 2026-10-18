@@ -5,7 +5,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from novui.config import Settings
-from novui.gitinspect import run_git
+from novui.gitinspect import GitError, run_git
 from novui.jobrecord import load_job_record, now_iso
 from novui.jobrunner import jobs_dir
 from novui.locks import can_accept_write_job
@@ -15,7 +15,7 @@ from novui.semantics import check_chapter
 from novui.states import ChapterEvent, ChapterState, JobState, next_chapter_state
 from novui.workrepo import chapter_branches, commit_all
 from novui.works import WorkInfo
-from novui.yamlio import load_yaml, write_yaml_atomic
+from novui.yamlio import load_yaml, loads_yaml, write_yaml_atomic
 
 _CHAPTER_ID_RE = re.compile(r"^ch-[0-9]{3,}$")
 
@@ -401,3 +401,61 @@ def clear_review_required(settings: Settings, work: WorkInfo, chapter_id: str) -
         if c_hash is None:
             raise ChapterError(f"Failed to commit review done for chapter {chapter_id}")
         return c_hash
+
+
+def review_only_since(repo: Path, base: str, head: str, chapter_id: str) -> bool:
+    """Return True if base is an ancestor of head and every commit in base..head is a review-only commit.
+
+    base == head returns True.
+    A review-only commit satisfies:
+    - Not a merge commit
+    - Only modified path is chapters/<chapter_id>/chapter.yaml (status 'M')
+    - Compared to its parent, all keys in chapter.yaml other than review_required and review_reasons have equal values.
+    """
+    if base == head:
+        return True
+
+    try:
+        run_git(repo, "merge-base", "--is-ancestor", base, head)
+    except GitError:
+        return False
+
+    commits_out = run_git(repo, "rev-list", "--reverse", f"{base}..{head}").decode("utf-8").strip()
+    if not commits_out:
+        return True
+
+    commits = commits_out.split()
+    target_path = f"chapters/{chapter_id}/chapter.yaml"
+
+    for commit in commits:
+        parents_out = run_git(repo, "rev-list", "--parents", "-n", "1", commit).decode("utf-8").strip()
+        parents = parents_out.split()[1:]
+        if len(parents) != 1:
+            return False
+        parent = parents[0]
+
+        raw = run_git(repo, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", "--no-renames", commit)
+        parts = raw.decode("utf-8", errors="surrogateescape").split("\0")
+        if parts and parts[-1] == "":
+            parts.pop()
+        changes = [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+        if len(changes) != 1:
+            return False
+        status, path = changes[0]
+        if status != "M" or path != target_path:
+            return False
+
+        try:
+            parent_yaml = loads_yaml(run_git(repo, "show", f"{parent}:{target_path}").decode("utf-8"))
+            commit_yaml = loads_yaml(run_git(repo, "show", f"{commit}:{target_path}").decode("utf-8"))
+        except Exception:
+            return False
+        if not isinstance(parent_yaml, dict) or not isinstance(commit_yaml, dict):
+            return False
+
+        p_keys = {k: v for k, v in parent_yaml.items() if k not in ("review_required", "review_reasons")}
+        c_keys = {k: v for k, v in commit_yaml.items() if k not in ("review_required", "review_reasons")}
+        if p_keys != c_keys:
+            return False
+
+    return True
