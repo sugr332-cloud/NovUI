@@ -80,7 +80,7 @@ Phase 3 でも Web UI は作らない。Human の操作は CLI で行う。
 | # | 内容 | 推奨案 | 決定 |
 |---|---|---|---|
 | 1 | Phase 3 のブランチ | `phase3/state-git` を main から切り、AGY の push もここだけにする | 推奨案（2026-10-18） |
-| 2 | setting_change の書き先 | 章の作業ブランチではなく main に直接（承認記録付きの Controller の commit）。章の作業ブランチと同じ target を変えた場合、その章の state_update の提案は base_hash が合わなくなり invalid になる | 推奨案（2026-10-18） |
+| 2 | setting_change の書き先 | 章の作業ブランチではなく main に直接（承認記録付きの Controller の commit）。作業中の章との関係は phase3b-design.md §4（「invalid になる」は不正確だったので改めた） | 推奨案（2026-10-18） |
 | 3 | 直接編集の操作 | Phase 3 は CLI（Human が作業ツリーで直し、`edit` で commit）。エディタの画面は Phase 4 | 推奨案（2026-10-18） |
 | 4 | push の試験 | ローカルの bare リポジトリを origin にする。GitHub への実際の push は Phase 5 で確かめる | 推奨案（2026-10-18） |
 | 5 | 正気度・ルート・視点ごとの台詞（2-E 決定 9） | Phase 3 には入れない。別に設計する | 推奨案（2026-10-18） |
