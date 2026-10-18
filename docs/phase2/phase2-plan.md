@@ -87,3 +87,17 @@ v0.5.2 §7.1・§17 を、次のとおり具体化する。
 * 場面の区切りの検査（§6.5.1）は、draft Job では FAIL として扱う（区切りがないと後の場面単位の検査ができないため）。validate の機械検査では WARNING 以上として総合判定に入れる。
 
 指示書：docs/phase2/agy-instruction-2b.md
+
+## 5. 受入の記録
+
+2026-10-17、実際の Claude と AGY（`gemini-3.8-flash-high`、agy 1.2.14、普段使いのトークン）で結合試験を流した。すべて通った。
+
+| 受入条件 | 試験 | 結果 |
+|---|---|---|
+| 1. outline から FINAL まで | `test_statefinal_integration.py` S1 | 通過。draft の検査はすべて PASS。validate で伏線 F001 の初出が plan より前（S1）という WARNING が出て、CONTINUE で進めた。state_update、approve-state、final-approve を経て main に merge された |
+| 2. 不明な設定で WAITING_HUMAN | 同 S2 | 通過。AGY が「門番の名前」を要確認とし WAITING_HUMAN。resolve_request（名前は出さず「門番」と書く）の後の redraft は検査がすべて PASS |
+| 3. 一人称・呼び方の違反の検出 | 2-D10・2-F の結合試験 | 通過（2-D・2-F で確認済み） |
+| 4. 伏線の検査 | 2-D10 の結合試験 | 通過（2-D で確認済み） |
+| 台本の形式（2-E） | `test_script_integration.py` E6 | 通過。選択肢・フラグ・`@if` を使った台本で、台本の検査 10 件がすべて PASS |
+
+所要時間は S1・S2 で約 8 分、E6 で約 1 分 20 秒。agy_auth・agy_quota での停止は無かった（上限の実際の文言は未確認のまま）。agy は実際のモデル名を出さないので、Job 記録の `actual_model` は空になる。
