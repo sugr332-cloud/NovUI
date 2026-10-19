@@ -114,7 +114,8 @@ def cycle_info(
         if get_changes(expected_wt):
             raise ChapterError(f"worktree {expected_wt} has uncommitted changes")
 
-    return CycleInfo(branch=branch, draft_job_id=draft_job_id, jw=JobWorktree(branch, expected_wt, base), draft_record=record)
+    mb = run_git(repo, "merge-base", "main", branch).decode("utf-8").strip()
+    return CycleInfo(branch=branch, draft_job_id=draft_job_id, jw=JobWorktree(branch, expected_wt, mb), draft_record=record)
 
 
 def waiting_jobs_on_branch(settings: Settings, work: WorkInfo, branch: str) -> list[dict[str, Any]]:

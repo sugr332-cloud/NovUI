@@ -94,20 +94,28 @@ def _check_draft_consistency(
     work: WorkInfo,
     chapter_id: str,
     branch: str,
-) -> tuple[dict[str, Any] | None, list[str]]:
+    *,
+    return_followed: bool = False,
+) -> tuple[dict[str, Any] | None, list[str]] | tuple[dict[str, Any] | None, list[str], list[str]]:
     """Check the draft Job record, its worktree, base commit and Context hashes (§11.1, §16.2).
 
-    Returns (draft_record, details). details is empty when consistent.
+    Returns (draft_record, details) or (draft_record, details, followed_paths).
+    details is empty when consistent.
     """
+    def _ret(d: dict[str, Any] | None, det: list[str], fol: list[str] | None = None) -> Any:
+        if return_followed:
+            return d, det, fol if fol is not None else []
+        return d, det
+
     details: list[str] = []
     draft_job_id = branch.rsplit("/", 1)[-1]
     rec_path = jobs_dir(settings, work.work_key) / f"{draft_job_id}.yaml"
     if not rec_path.is_file():
-        return None, [f"draft job record not found: {draft_job_id}"]
+        return _ret(None, [f"draft job record not found: {draft_job_id}"])
     try:
         draft = load_job_record(rec_path)
     except (SchemaError, YamlError) as exc:
-        return None, [f"draft job record invalid: {exc}"]
+        return _ret(None, [f"draft job record invalid: {exc}"])
 
     if draft["job_type"] != "draft":
         details.append(f"job {draft_job_id} is not a draft job: {draft['job_type']}")
@@ -122,17 +130,17 @@ def _check_draft_consistency(
     if not draft["worktree"]:
         details.append("draft job has no worktree")
     if details:
-        return draft, details
+        return _ret(draft, details)
 
     worktree = Path(draft["worktree"])
     if not worktree.is_dir():
-        return draft, [f"worktree not found: {worktree}"]
+        return _ret(draft, [f"worktree not found: {worktree}"])
     try:
         cur = run_git(worktree, "branch", "--show-current").decode("utf-8").strip()
     except GitError as exc:
-        return draft, [f"worktree is not a git worktree: {exc}"]
+        return _ret(draft, [f"worktree is not a git worktree: {exc}"])
     if cur != branch:
-        return draft, [f"worktree branch {cur!r} does not match {branch!r}"]
+        return _ret(draft, [f"worktree branch {cur!r} does not match {branch!r}"])
     changes = get_changes(worktree)
     if changes:
         details.append("worktree has uncommitted changes: " + ", ".join(sorted(c.path for c in changes)))
@@ -145,13 +153,27 @@ def _check_draft_consistency(
         if not (worktree / _chapter_rel(chapter_id, name)).is_file():
             details.append(f"required file missing: {_chapter_rel(chapter_id, name)}")
 
+    main_changed: set[str] = set()
+    try:
+        mb = run_git(worktree, "merge-base", "main", branch).decode("utf-8").strip()
+        base_commit = draft.get("base_commit")
+        if mb and base_commit and mb != base_commit:
+            diff_out = run_git(worktree, "diff", "--name-only", base_commit, mb).decode("utf-8")
+            main_changed = set(filter(None, diff_out.splitlines()))
+    except GitError:
+        main_changed = set()
+
+    followed_paths: list[str] = []
     for entry in draft["context"]:
         p = worktree / entry["path"]
         if not p.is_file():
             details.append(f"context file missing: {entry['path']}")
         elif _sha256_file(p) != entry["sha256"]:
-            details.append(f"context hash mismatch: {entry['path']}")
-    return draft, details
+            if entry["path"] in main_changed:
+                followed_paths.append(entry["path"])
+            else:
+                details.append(f"context hash mismatch: {entry['path']}")
+    return _ret(draft, details, followed_paths)
 
 
 def _check_dict(c: CheckResult) -> dict[str, Any]:
@@ -287,7 +309,9 @@ def run_validate_job(
 
     try:
         # 1. draft Job の成果物と Context の確認（§11.1）
-        draft, details = _check_draft_consistency(settings, work, chapter_id, branch)
+        draft, details, followed_paths = _check_draft_consistency(
+            settings, work, chapter_id, branch, return_followed=True
+        )
         if draft is not None:
             record["worktree"] = draft["worktree"]
             record["base_commit"] = draft["base_commit"]
@@ -296,6 +320,12 @@ def run_validate_job(
             "status": "FAIL" if details else "PASS",
             "details": details,
         })
+        if followed_paths:
+            record["checks"].append({
+                "name": "context_followed_main",
+                "status": "WARNING",
+                "details": followed_paths,
+            })
         if details:
             record = apply_transition(record, JobEvent.CLI_EXITED)
             record = apply_transition(record, JobEvent.CHECK_FAILED, reason="draft_consistency check failed")

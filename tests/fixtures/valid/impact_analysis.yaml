@@ -1,0 +1,6 @@
+type: impact_analysis
+affected:
+  - chapter_id: ch-001
+    reason: 主人公の行動動機に関わる
+notes:
+  - 他の設定への影響なし

@@ -1,0 +1,7 @@
+type: setting_change_plan
+instruction_id: INS-0001
+targets:
+  - target: characters/C001.yaml
+    change: 性格設定の追加
+new_foreshadowing: 0
+questions: []

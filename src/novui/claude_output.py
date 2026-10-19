@@ -14,6 +14,8 @@ CLAUDE_OUTPUT_TYPES: frozenset[str] = frozenset({
     "state_patch",
     "summary",
     "instruction_routing",
+    "setting_change_plan",
+    "impact_analysis",
 })
 
 

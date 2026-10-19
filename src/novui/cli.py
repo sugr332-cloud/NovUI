@@ -23,7 +23,7 @@ from novui.editjob import EDIT_JOB_TYPES, cancel_edit_job, run_chapter_rewrite_j
 from novui.export import export_chapter, write_export
 from novui.finalize import discard_cycle, final_approve, waiting_jobs_on_branch
 from novui.jobqueue import cancel_item, fix_findings, load_queue, numbered_findings, queue_lock, run_queue
-from novui.jobrecord import load_job_record
+from novui.jobrecord import apply_transition, load_job_record, save_job_record
 from novui.jobrunner import ContainerRunner, jobs_dir
 from novui.models import (
     fetch_agy_models,
@@ -36,6 +36,8 @@ from novui.locks import RunLock
 from novui.planjob import approve_plan, reject_plan, run_plan_job, run_plan_revision_job
 from novui.requestflow import redraft, resolve_request, unresolved_requests
 from novui.routingjob import ROUTING_SCOPES, approve_routing, reject_routing, run_routing_job
+from novui.settingchange import approve_setting, load_setting_proposal, reject_setting
+from novui.states import JobEvent, JobState
 from novui.stateupdate import approve_state, reject_state, run_state_update, show_proposal
 from novui.validatejob import (
     DECISION_ACTIONS,
@@ -183,10 +185,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_q.add_argument("--work", required=True, help="Novel work key")
     p_q.add_argument("--cancel", default=None, help="Cancel a queue item (Q-0001)")
 
-    # instruct --work <key> --chapter <id> --scope range|chapter|plan [--anchor ...] <instruction>
+    # instruct --work <key> [--chapter <id>] --scope range|chapter|plan|setting [--anchor ...] <instruction>
     p_in = subparsers.add_parser("instruct")
     p_in.add_argument("--work", required=True, help="Novel work key")
-    p_in.add_argument("--chapter", required=True, help="Chapter ID")
+    p_in.add_argument("--chapter", default=None, help="Chapter ID (optional for scope setting)")
     p_in.add_argument("--scope", required=True, choices=ROUTING_SCOPES, help="What the instruction is about")
     p_in.add_argument("--anchor", default=None, help="scope range: text of the range")
     p_in.add_argument("--before", default="", help="scope range: text just before the range")
@@ -204,10 +206,26 @@ def _build_parser() -> argparse.ArgumentParser:
     p_xr.add_argument("--work", required=True, help="Novel work key")
     p_xr.add_argument("--id", required=True, help="Instruction ID (INS-0001)")
 
+    # approve-setting --work <key> --id <INS-0001>
+    p_aset = subparsers.add_parser("approve-setting")
+    p_aset.add_argument("--work", required=True, help="Novel work key")
+    p_aset.add_argument("--id", required=True, help="Instruction ID (INS-0001)")
+
+    # reject-setting --work <key> --id <INS-0001> --reason <text>
+    p_rset = subparsers.add_parser("reject-setting")
+    p_rset.add_argument("--work", required=True, help="Novel work key")
+    p_rset.add_argument("--id", required=True, help="Instruction ID (INS-0001)")
+    p_rset.add_argument("--reason", required=True, help="Reason for rejecting the setting change")
+
+    # setting-proposal --work <key> --id <INS-0001>
+    p_sp = subparsers.add_parser("setting-proposal")
+    p_sp.add_argument("--work", required=True, help="Novel work key")
+    p_sp.add_argument("--id", required=True, help="Instruction ID (INS-0001)")
+
     # cancel-job --work <key> --job <job_id>
     p_cj = subparsers.add_parser("cancel-job")
     p_cj.add_argument("--work", required=True, help="Novel work key")
-    p_cj.add_argument("--job", required=True, help="WAITING_HUMAN range_edit / chapter_rewrite Job ID")
+    p_cj.add_argument("--job", required=True, help="WAITING_HUMAN range_edit / chapter_rewrite / setting_change Job ID")
 
     # discard --work <key> --chapter <id> [--force]
     p_dc = subparsers.add_parser("discard")
@@ -356,7 +374,8 @@ def _waiting_edit_job(settings: Settings, work: Any, record: dict[str, Any]) -> 
 def _print_routing(doc: dict[str, Any]) -> None:
     """Print Claude's routing so that the Human can approve or reject it."""
     r = doc["routing"]
-    print(f"Routing {doc['instruction_id']} [{doc['status']}] for {doc['chapter_id']} (scope {doc['scope']})")
+    target_label = doc["chapter_id"] if doc.get("chapter_id") is not None else "work"
+    print(f"Routing {doc['instruction_id']} [{doc['status']}] for {target_label} (scope {doc['scope']})")
     if r["scope_mismatch"]:
         print(f"Scope mismatch: {r['scope_mismatch_reason']}")
     for i, job in enumerate(r["proposed_jobs"]):
@@ -372,6 +391,32 @@ def _print_routing(doc: dict[str, Any]) -> None:
         print(f"Approve with approve-routing --id {doc['instruction_id']}, or reject-routing.")
     else:
         print(f"Answer the questions in a new instruct, and reject-routing --id {doc['instruction_id']}.")
+
+
+def _show_setting_proposal(doc: dict[str, Any]) -> None:
+    """Print a setting change proposal (§3.2, §3.3)."""
+    print(f"Setting Proposal {doc['instruction_id']} [{doc['status']}] (job {doc['job_id']})")
+    if doc.get("status_reason"):
+        print(f"  Reason: {doc['status_reason']}")
+    targets = [p["patch"]["target"] for p in doc.get("patches", [])]
+    print(f"Targets: {', '.join(targets)}")
+    for e in doc.get("patches", []):
+        p = e["patch"]
+        print(f"  Patch: {p['target']} (reason: {p['reason']})")
+        for op in p.get("operations", []):
+            print(f"    - {op.get('op')}: {op.get('path')}")
+    impacted = doc.get("impact", [])
+    if impacted:
+        print("Impacted chapters:")
+        for imp in impacted:
+            print(f"  - {imp['chapter_id']}: {imp['reason']}")
+    else:
+        print("Impacted chapters: none")
+    notes = doc.get("impact_notes") or []
+    if notes:
+        print("Notes: " + ", ".join(notes))
+    else:
+        print("Notes: none")
 
 
 def main(
@@ -611,8 +656,38 @@ def main(
             print(f"{args.id} rejected and removed")
             return 0
 
+        elif args.subcommand == "approve-setting":
+            work = get_work(cfg, args.work)
+            doc = approve_setting(cfg, work, args.id)
+            print(f"Setting proposal {args.id} approved (commit {doc['commit']})")
+            if doc.get("approval_id"):
+                print(f"Approval-Id: {doc['approval_id']}")
+            return 0
+
+        elif args.subcommand == "reject-setting":
+            work = get_work(cfg, args.work)
+            doc = reject_setting(cfg, work, args.id, args.reason)
+            print(f"Setting proposal {args.id} rejected")
+            return 0
+
+        elif args.subcommand == "setting-proposal":
+            work = get_work(cfg, args.work)
+            doc = load_setting_proposal(cfg, work.work_key, args.id)
+            _show_setting_proposal(doc)
+            return 0
+
         elif args.subcommand == "cancel-job":
             work = get_work(cfg, args.work)
+            jpath = jobs_dir(cfg, work.work_key) / f"{args.job}.yaml"
+            if jpath.is_file():
+                rec = load_job_record(jpath)
+                if rec.get("job_type") == "setting_change":
+                    if rec.get("state") != JobState.WAITING_HUMAN.name:
+                        raise ChapterError(f"{args.job} is {rec.get('state')}, not WAITING_HUMAN")
+                    rec = apply_transition(rec, JobEvent.HUMAN_CANCEL, reason="cancelled by Human")
+                    save_job_record(jobs_dir(cfg, work.work_key), rec)
+                    print(f"Job {rec['job_id']} finished with state: {rec['state']}")
+                    return 0
             record = cancel_edit_job(cfg, work, args.job)
             print(f"Job {record['job_id']} finished with state: {record['state']}")
             return 0

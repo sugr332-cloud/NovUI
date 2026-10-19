@@ -27,6 +27,7 @@ from novui.config import Settings
 from novui.draftjob import read_plan
 from novui.flagcheck import check_new_flag_conditions, flag_check_args
 from novui.flagstate import branch_conditions
+from novui.follow import FollowConflict, follow_main
 from novui.foreshadowcheck import check_new_order_issues
 from novui.gitinspect import get_changes, run_git
 from novui.ids import next_job_id
@@ -161,12 +162,40 @@ def run_state_update(
         if old_record["state"] != JobState.WAITING_HUMAN.name:
             raise ChapterError(f"job {pending['job_id']} is {old_record['state']}, not WAITING_HUMAN")
 
+    follow_check: dict[str, Any] | None = None
+    try:
+        new_head = follow_main(settings, work, chapter_id, allow_pending=replace)
+        if new_head is not None:
+            main_head = run_git(repo, "rev-parse", "main").decode("utf-8").strip()
+            follow_check = {
+                "name": "follow_main",
+                "status": "PASS",
+                "details": [f"rebased onto {main_head[:12]}"],
+            }
+    except FollowConflict as exc:
+        actual_job_id = job_id or next_job_id(settings, work.work_key)
+        jdir = jobs_dir(settings, work.work_key)
+        jdir.mkdir(parents=True, exist_ok=True)
+        record = new_job_record(actual_job_id, STATE_UPDATE_JOB_TYPE, chapter_id=chapter_id)
+        record["branch"] = branch
+        record["checks"].append({
+            "name": "follow_main",
+            "status": "FAIL",
+            "details": sorted(exc.paths),
+        })
+        reason = f"main changed {', '.join(sorted(exc.paths))} that the job branch also changed"
+        record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT, reason=reason)
+        save_job_record(jdir, record)
+        return record
+
     actual_job_id = job_id or next_job_id(settings, work.work_key)
     jdir = jobs_dir(settings, work.work_key)
     jdir.mkdir(parents=True, exist_ok=True)
 
     record = new_job_record(actual_job_id, STATE_UPDATE_JOB_TYPE, chapter_id=chapter_id)
     record["branch"] = branch
+    if follow_check is not None:
+        record["checks"].append(follow_check)
     save_job_record(jdir, record)
 
     # Claude の Job は実行 lock の対象外（§18.1）
@@ -189,7 +218,9 @@ def run_state_update(
 
     try:
         # 1. draft Job の成果物と Context の確認（validate と同じ）
-        draft, details = _check_draft_consistency(settings, work, chapter_id, branch)
+        draft, details, followed_paths = _check_draft_consistency(
+            settings, work, chapter_id, branch, return_followed=True
+        )
         if draft is not None:
             record["worktree"] = draft["worktree"]
             record["base_commit"] = draft["base_commit"]
@@ -198,6 +229,12 @@ def run_state_update(
             "status": "FAIL" if details else "PASS",
             "details": details,
         })
+        if followed_paths:
+            record["checks"].append({
+                "name": "context_followed_main",
+                "status": "WARNING",
+                "details": followed_paths,
+            })
         save_job_record(jdir, record)
         if details:
             return fail("draft_consistency check failed")
@@ -505,6 +542,14 @@ def approve_state(settings: Settings, work: WorkInfo, chapter_id: str) -> dict[s
                     f"branch head {head} differs from the proposal's branch_head {proposal['branch_head']}")
     if meta["state"] != ChapterState.AI_VALIDATED.name:
         _invalidate(settings, work, proposal, record, f"chapter is {meta['state']}, not AI_VALIDATED")
+    mb = run_git(repo, "merge-base", "main", branch).decode("utf-8").strip()
+    main_changed = set(filter(None, run_git(repo, "diff", "--name-only", f"{mb}..main").decode("utf-8").splitlines()))
+    for p in patches:
+        if p["target"] in main_changed:
+            _invalidate(
+                settings, work, proposal, record,
+                f"{p['target']} changed on main since the job branch",
+            )
     plan = read_plan(worktree, chapter_id)
     scene_ids = [s["id"] for s in plan["scenes"]]
     for p in patches:

@@ -377,6 +377,81 @@ class _SemanticChecksDict(dict):
         return super().__contains__(key)
 
 
+def check_setting_change_plan(doc: Any) -> list[str]:
+    """Validate setting_change_plan semantics."""
+    errors: list[str] = []
+    targets = doc.get("targets", [])
+    seen: set[str] = set()
+    for t in targets:
+        target = t.get("target")
+        if not is_safe_relpath(target):
+            errors.append(f"targets path is not a safe relative path: {target!r}")
+        if target in seen:
+            errors.append(f"Duplicate target path in targets: {target!r}")
+        seen.add(target)
+    return errors
+
+
+def check_impact_analysis(doc: Any) -> list[str]:
+    """Validate impact_analysis semantics."""
+    errors: list[str] = []
+    affected = doc.get("affected", [])
+    seen: set[str] = set()
+    for a in affected:
+        cid = a.get("chapter_id")
+        if cid in seen:
+            errors.append(f"Duplicate chapter_id in affected: {cid!r}")
+        seen.add(cid)
+    return errors
+
+
+def check_setting_proposal(doc: Any) -> list[str]:
+    """Validate setting_proposal semantics."""
+    errors: list[str] = []
+    plan = doc.get("plan", [])
+    seen_plan: set[str] = set()
+    for p in plan:
+        target = p.get("target")
+        if not is_safe_relpath(target):
+            errors.append(f"plan path is not a safe relative path: {target!r}")
+        if target in seen_plan:
+            errors.append(f"Duplicate target in plan: {target!r}")
+        seen_plan.add(target)
+
+    patches = doc.get("patches", [])
+    seen_patch: set[str] = set()
+    for item in patches:
+        patch = item.get("patch", {})
+        target = patch.get("target")
+        if not is_safe_relpath(target):
+            errors.append(f"patch target is not a safe relative path: {target!r}")
+        if target in seen_patch:
+            errors.append(f"Duplicate target in patches: {target!r}")
+        seen_patch.add(target)
+
+    affected = doc.get("impact", [])
+    seen_aff: set[str] = set()
+    for a in affected:
+        cid = a.get("chapter_id")
+        if cid in seen_aff:
+            errors.append(f"Duplicate chapter_id in impact: {cid!r}")
+        seen_aff.add(cid)
+
+    status = doc.get("status")
+    if status == "approved":
+        if doc.get("decided_at") is None:
+            errors.append("decided_at must not be null when status is 'approved'")
+        if doc.get("approval_id") is None:
+            errors.append("approval_id must not be null when status is 'approved'")
+        if doc.get("commit") is None:
+            errors.append("commit must not be null when status is 'approved'")
+    elif status in ("rejected", "superseded", "invalid"):
+        if doc.get("status_reason") is None:
+            errors.append(f"status_reason must not be null when status is {status!r}")
+
+    return errors
+
+
 SEMANTIC_CHECKS: dict[str, Callable[[Any], list[str]]] = _SemanticChecksDict({
     "chapter": check_chapter,
     "plan": check_plan,
@@ -400,6 +475,9 @@ SEMANTIC_CHECKS: dict[str, Callable[[Any], list[str]]] = _SemanticChecksDict({
     "flags": check_flags,
     "backgrounds": _no_op_check,
     "script_rules": _no_op_check,
+    "setting_change_plan": check_setting_change_plan,
+    "impact_analysis": check_impact_analysis,
+    "setting_proposal": check_setting_proposal,
 })
 
 

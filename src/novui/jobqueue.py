@@ -30,7 +30,7 @@ from novui.validatejob import _read_branch_chapter_meta, _read_branch_yaml
 from novui.works import WorkInfo
 from novui.yamlio import load_yaml, write_yaml_atomic
 
-QUEUE_JOB_TYPES: tuple[str, ...] = ("range_edit", "chapter_rewrite", "plan_revision", "draft")
+QUEUE_JOB_TYPES: tuple[str, ...] = ("range_edit", "chapter_rewrite", "plan_revision", "draft", "setting_change")
 INTEGRITY_ORDER: tuple[str, ...] = (
     "character", "world", "timeline", "plot", "foreshadowing", "plan_compliance", "undefined_setting",
 )
@@ -88,7 +88,7 @@ def _next_item_number(items: Sequence[Mapping[str, Any]]) -> int:
 
 def new_item(
     job_type: str,
-    chapter_id: str,
+    chapter_id: str | None,
     *,
     instruction: str,
     source: Mapping[str, Any],
@@ -257,6 +257,16 @@ def _run_item(
 ) -> dict[str, Any]:
     ch, jt = item["chapter_id"], item["job_type"]
     common = {"instruction_id": item["instruction_id"], "run_lock": run_lock, "container_runner": container_runner}
+    if jt == "setting_change":
+        from novui.settingchange import run_setting_change_job
+        return run_setting_change_job(
+            settings,
+            work,
+            instruction_id=item["instruction_id"],
+            instruction=item["instruction"],
+            chapter_id=item["chapter_id"],
+            claude_runner=claude_runner,
+        )
     if jt == "range_edit":
         return run_range_edit_job(settings, work, ch, anchor=item["anchor"], reason=item["instruction"],
                                   source=item["source"], retry_of=retry_job, **common)
@@ -306,12 +316,13 @@ def run_queue(
                 report("The queue is empty.")
                 return records
             retry_job: str | None = None
+            ch_str = head["chapter_id"] if head["chapter_id"] is not None else "-"
             if head["status"] == "running":
                 head["status"], head["note"] = "failed", "interrupted (the previous run-queue stopped)"
                 save_queue(settings, work.work_key, items)
             if head["status"] in ("waiting", "failed"):
                 if not retry:
-                    report(f"{head['item_id']} ({head['job_type']} {head['chapter_id']}) is {head['status']}: "
+                    report(f"{head['item_id']} ({head['job_type']} {ch_str}) is {head['status']}: "
                            f"{head['note'] or ''} — decide, then run-queue --retry, or queue --cancel {head['item_id']}")
                     return records
                 retry = False  # 先頭の1件だけをやり直す
@@ -322,7 +333,7 @@ def run_queue(
             if head["job_type"] == "draft":
                 meta = read_chapter_meta(work.path, head["chapter_id"])
                 if meta is None or meta["state"] != ChapterState.PLAN_APPROVED.name:
-                    report(f"{head['item_id']} (draft {head['chapter_id']}) waits for approve-plan "
+                    report(f"{head['item_id']} (draft {ch_str}) waits for approve-plan "
                            f"(chapter is {meta['state'] if meta else 'missing'}).")
                     return records
 
@@ -335,7 +346,7 @@ def run_queue(
             except (ChapterError, ValueError) as exc:
                 head["status"], head["note"] = before, f"not run: {exc}"
                 save_queue(settings, work.work_key, items)
-                report(f"{head['item_id']} ({head['job_type']} {head['chapter_id']}) was not run: {exc}")
+                report(f"{head['item_id']} ({head['job_type']} {ch_str}) was not run: {exc}")
                 return records
             except BaseException:
                 head["status"], head["note"] = "failed", "error while running (see the Job record)"
@@ -347,7 +358,7 @@ def run_queue(
             history = record.get("history") or [{}]
             head["note"] = history[-1].get("reason") if head["status"] != "done" else None
             save_queue(settings, work.work_key, items)
-            report(f"{head['item_id']} ({head['job_type']} {head['chapter_id']}): Job {record['job_id']} "
+            report(f"{head['item_id']} ({head['job_type']} {ch_str}): Job {record['job_id']} "
                    f"{record['state']}")
             if head["status"] != "done":
                 return records

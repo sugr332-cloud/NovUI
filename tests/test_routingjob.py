@@ -185,7 +185,7 @@ def test_routing_argument_errors(tmp_path: Path) -> None:
     settings, work = setup_work(tmp_path)
     claude = FakeClaude(routing(job("plan_revision")))
     with pytest.raises(ValueError, match="scope"):
-        run_routing_job(settings, work, CH, "setting", "x", claude_runner=claude)
+        run_routing_job(settings, work, CH, "unknown", "x", claude_runner=claude)
     with pytest.raises(ValueError, match="needs an anchor"):
         run_routing_job(settings, work, CH, "range", "x", claude_runner=claude)
     with pytest.raises(ValueError, match="only scope range"):
@@ -250,7 +250,7 @@ def test_routing_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     assert "  [0] range_edit: range_edit の案" in out and "range: 門番が紋章に目を留めた。" in out
     assert "approve-routing --id INS-0001" in out
 
-    assert main(["instruct", *base, "--chapter", CH, "--scope", "setting", "x"], settings=settings) == 1
+    assert main(["instruct", *base, "--chapter", CH, "--scope", "unknown", "x"], settings=settings) == 1
     capsys.readouterr()
     rc = main(["instruct", *base, "--chapter", CH, "--scope", "chapter", "いい感じに"], settings=settings,
               claude_runner=FakeClaude(routing(questions=["どこを？"])))

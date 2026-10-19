@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 from typing import Any, Mapping, Sequence
 
-from novui.chapters import ChapterError, ensure_main_ready, read_chapter_meta
+from novui.chapters import ChapterError, ensure_main_ready, read_chapter_meta, read_chapters_order
 from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeJobRequest, ClaudeRunner, run_claude_job
 from novui.config import Settings
@@ -23,14 +23,15 @@ from novui.jobrecord import apply_transition, load_job_record, now_iso, save_job
 from novui.jobrunner import jobs_dir
 from novui.planjob import collect_plan_context
 from novui.prompt import load_prompt_template
+from novui.settingchange import setting_context
 from novui.states import JobEvent, JobState
 from novui.validatejob import _read_branch_chapter_meta
 from novui.workrepo import chapter_branches, head_commit
 from novui.works import WorkInfo
 from novui.yamlio import load_yaml, write_yaml_atomic
 
-ROUTING_SCOPES: tuple[str, ...] = ("range", "chapter", "plan")  # Phase 2 で受け付ける scope（§6.1）
-ROUTABLE_JOBS: tuple[str, ...] = ("range_edit", "chapter_rewrite", "plan_revision")
+ROUTING_SCOPES: tuple[str, ...] = ("range", "chapter", "plan", "setting")
+ROUTABLE_JOBS: tuple[str, ...] = ("range_edit", "chapter_rewrite", "plan_revision", "setting_change")
 _INS_RE = re.compile(r"^INS-([0-9]{4,})$")
 
 
@@ -67,13 +68,14 @@ def _save_routing(settings: Settings, work_key: str, doc: Mapping[str, Any]) -> 
     write_yaml_atomic(_routing_path(settings, work_key, doc["instruction_id"]), dict(doc))
 
 
-def check_proposed_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[str]:
+def check_proposed_jobs(jobs: Sequence[Mapping[str, Any]], *, scope: str | None = None) -> list[str]:
     """Problems in Claude's proposed_jobs that the schema and check_instruction_routing do not catch."""
     problems: list[str] = []
+    routable = ("setting_change",) if scope == "setting" else ("range_edit", "chapter_rewrite", "plan_revision")
     for i, job in enumerate(jobs):
         jt = job["job_type"]
-        if jt not in ROUTABLE_JOBS:
-            problems.append(f"proposed_jobs[{i}]: {jt} cannot be proposed (use {', '.join(ROUTABLE_JOBS)})")
+        if jt not in routable:
+            problems.append(f"proposed_jobs[{i}]: {jt} cannot be proposed (use {', '.join(routable)})")
         if jt == "range_edit" and job.get("anchor") is None:
             problems.append(f"proposed_jobs[{i}]: range_edit needs an anchor")
         if jt != "range_edit" and job.get("anchor") is not None:
@@ -97,7 +99,7 @@ def _cycle_state(settings: Settings, work: WorkInfo, chapter_id: str) -> tuple[P
 def run_routing_job(
     settings: Settings,
     work: WorkInfo,
-    chapter_id: str,
+    chapter_id: str | None,
     scope: str,
     instruction: str,
     *,
@@ -115,42 +117,77 @@ def run_routing_job(
     if not instruction or not instruction.strip():
         raise ValueError("instruction must not be empty")
     instruction = instruction.strip()
+    if scope != "setting" and chapter_id is None:
+        raise ValueError(f"chapter_id is required for scope {scope!r}")
     if scope == "range":
         if anchor is None:
             raise ValueError("scope range needs an anchor")
         anchor = normalize_anchor(anchor)
     elif anchor is not None:
-        raise ValueError("only scope range takes an anchor")
+        raise ValueError(f"only scope range takes an anchor (got scope {scope!r})")
+
     ensure_main_ready(work.path)
-    root, state, ref, commit = _cycle_state(settings, work, chapter_id)
-    draft_rel = f"chapters/{chapter_id}/draft.md"
-    has_draft = ref != "main" and (root / draft_rel).is_file()
-    if scope == "range" and not has_draft:
-        raise ChapterError(f"Chapter {chapter_id!r} has no draft on a job branch; a range cannot be chosen")
 
-    ctx = list(collect_plan_context(root, chapter_id))
-    for rel in (f"chapters/{chapter_id}/plan.yaml", draft_rel if has_draft else None):
-        if rel is not None and (root / rel).is_file() and rel not in ctx:
-            ctx.append(rel)
+    if scope == "setting":
+        root = work.path
+        ref = "main"
+        commit = head_commit(work.path, "main")
+        if chapter_id is not None:
+            order = read_chapters_order(work.path)
+            if chapter_id not in order:
+                raise ChapterError(f"Chapter {chapter_id!r} not found in chapters-order.yaml")
+        ctx = list(setting_context(work.path))
+        if chapter_id is not None:
+            for rel in (f"chapters/{chapter_id}/plan.yaml", f"chapters/{chapter_id}/outline.md"):
+                if (work.path / rel).is_file() and rel not in ctx:
+                    ctx.append(rel)
 
-    instruction_id = next_instruction_id(settings, work.work_key)
-    scope_detail = ""
-    if anchor is not None:
-        scope_detail = (
-            "Human が選んだ範囲（本文の中の文字列）：\n\n```text\n" + anchor["text"] + "\n```\n"
-            + (f"\n直前の文字列：{anchor['before']}" if anchor["before"] else "")
-            + (f"\n直後の文字列：{anchor['after']}" if anchor["after"] else "")
+        instruction_id = next_instruction_id(settings, work.work_key)
+        ch_val = f"`{chapter_id}`" if chapter_id is not None else "`null`"
+        ch_note = (
+            f"「この指示は章 {chapter_id} を見ているときに出されました。chapters/{chapter_id}/plan.yaml がその章の執筆計画です。」"
+            if chapter_id is not None
+            else ""
         )
-    task = load_prompt_template(
-        "instruction_routing",
-        chapter_id=chapter_id,
-        instruction_id=instruction_id,
-        scope=scope,
-        instruction=instruction,
-        scope_detail=scope_detail,
-        chapter_state=f"{state}（本文{'あり' if has_draft else 'なし'}）",
-        draft_note=(f"chapters/{chapter_id}/draft.md が今の本文です。" if has_draft else "この章にはまだ本文がありません。"),
-    )
+        task = load_prompt_template(
+            "instruction_routing_setting",
+            instruction_id=instruction_id,
+            instruction=instruction,
+            chapter_id_value=ch_val,
+            chapter_note=ch_note,
+        )
+    else:
+        assert chapter_id is not None
+        root, state, ref, commit = _cycle_state(settings, work, chapter_id)
+        draft_rel = f"chapters/{chapter_id}/draft.md"
+        has_draft = ref != "main" and (root / draft_rel).is_file()
+        if scope == "range" and not has_draft:
+            raise ChapterError(f"Chapter {chapter_id!r} has no draft on a job branch; a range cannot be chosen")
+
+        ctx = list(collect_plan_context(root, chapter_id))
+        for rel in (f"chapters/{chapter_id}/plan.yaml", draft_rel if has_draft else None):
+            if rel is not None and (root / rel).is_file() and rel not in ctx:
+                ctx.append(rel)
+
+        instruction_id = next_instruction_id(settings, work.work_key)
+        scope_detail = ""
+        if anchor is not None:
+            scope_detail = (
+                "Human が選んだ範囲（本文の中の文字列）：\n\n```text\n" + anchor["text"] + "\n```\n"
+                + (f"\n直前の文字列：{anchor['before']}" if anchor["before"] else "")
+                + (f"\n直後の文字列：{anchor['after']}" if anchor["after"] else "")
+            )
+        task = load_prompt_template(
+            "instruction_routing",
+            chapter_id=chapter_id,
+            instruction_id=instruction_id,
+            scope=scope,
+            instruction=instruction,
+            scope_detail=scope_detail,
+            chapter_state=f"{state}（本文{'あり' if has_draft else 'なし'}）",
+            draft_note=(f"chapters/{chapter_id}/draft.md が今の本文です。" if has_draft else "この章にはまだ本文がありません。"),
+        )
+
     actual_job_id = job_id or next_job_id(settings, work.work_key)
     req = ClaudeJobRequest(
         work_key=work.work_key,
@@ -173,25 +210,35 @@ def run_routing_job(
     # Controller の値で上書きする（Claude が写し間違えても、記録は Human の指示のまま）
     data = {**data, "instruction_id": instruction_id, "scope": scope, "chapter_id": chapter_id,
             "instruction": instruction}
-    problems = check_proposed_jobs(data["proposed_jobs"])
+    problems = check_proposed_jobs(data["proposed_jobs"], scope=scope)
     if scope == "range" and not data["scope_mismatch"]:
         problems += [f"proposed_jobs[{i}]: scope range allows only range_edit (or set scope_mismatch)"
                      for i, j in enumerate(data["proposed_jobs"]) if j["job_type"] != "range_edit"]
-    if not data["questions"] and not data["proposed_jobs"]:
-        problems.append("neither proposed_jobs nor questions")
+
+    if scope == "setting":
+        if not data["scope_mismatch"] and not data["questions"]:
+            if len(data["proposed_jobs"]) != 1 or data["proposed_jobs"][0].get("job_type") != "setting_change":
+                problems.append("proposed_jobs must be exactly 1 setting_change job when scope is setting and no questions")
+        if data["scope_mismatch"] and data["proposed_jobs"]:
+            problems.append("proposed_jobs must be empty when scope_mismatch is true")
+    else:
+        if not data["questions"] and not data["proposed_jobs"]:
+            problems.append("neither proposed_jobs nor questions")
+
     record["checks"].append({"name": "routing_jobs", "status": "FAIL" if problems else "PASS", "details": problems})
     if problems:
         record = apply_transition(record, JobEvent.CHECK_FAILED, reason="routing_jobs check failed")
         save_job_record(jdir, record)
         return record, None
 
+    is_questions = bool(data["questions"]) or (scope == "setting" and bool(data["scope_mismatch"]))
     doc = {
         "instruction_id": instruction_id,
         "chapter_id": chapter_id,
         "scope": scope,
         "instruction": instruction,
         "anchor": anchor,
-        "status": "questions" if data["questions"] else "pending",
+        "status": "questions" if is_questions else "pending",
         "job_id": actual_job_id,
         "base": {"ref": ref, "commit": commit},
         "created_at": now_iso(),
@@ -200,6 +247,10 @@ def run_routing_job(
     _save_routing(settings, work.work_key, doc)
     if data["questions"]:
         record = apply_transition(record, JobEvent.NEEDS_HUMAN_INPUT, reason=f"questions: {len(data['questions'])}")
+    elif scope == "setting" and data["scope_mismatch"]:
+        record = apply_transition(
+            record, JobEvent.NEEDS_HUMAN_INPUT, reason=f"scope mismatch: {data.get('scope_mismatch_reason')}"
+        )
     else:
         record = apply_transition(record, JobEvent.CHECK_PASSED, needs_validation=False)
     save_job_record(jdir, record)
@@ -217,7 +268,10 @@ def routing_items(doc: Mapping[str, Any]) -> list[dict[str, Any]]:
         jt = job["job_type"]
         text = f"{job['instruction']}\n\nHuman の元の指示：{doc['instruction']}"
         source = {"kind": "instruction", "instruction_id": ins}
-        if jt == "plan_revision":
+        if jt == "setting_change":
+            items.append(new_item("setting_change", doc["chapter_id"], instruction=text, source=source,
+                                  instruction_id=ins))
+        elif jt == "plan_revision":
             revised = True
             items.append(new_item("plan_revision", doc["chapter_id"], instruction=text, source=source,
                                   instruction_id=ins))
@@ -255,6 +309,20 @@ def approve_routing(
     if doc["status"] != "pending":
         raise ChapterError(f"{instruction_id} is {doc['status']}; only a pending routing can be approved")
     ensure_main_ready(work.path)
+    if doc["scope"] == "setting":
+        current_head = head_commit(work.path, "main")
+        if current_head != doc["base"]["commit"]:
+            raise ChapterError(
+                f"main changed since {instruction_id} was routed ({doc['base']['ref']} "
+                f"{doc['base']['commit'][:12]} -> main {current_head[:12]}); run instruct again"
+            )
+        items = routing_items(doc)
+        with queue_lock(settings, work.work_key):
+            queued = enqueue(settings, work.work_key, items)
+        doc = {**doc, "status": "approved", "approved_at": now_iso()}
+        _save_routing(settings, work.work_key, doc)
+        return queued
+
     chapter_id = doc["chapter_id"]
     _, _, ref, commit = _cycle_state(settings, work, chapter_id)
     if (ref, commit) != (doc["base"]["ref"], doc["base"]["commit"]):
