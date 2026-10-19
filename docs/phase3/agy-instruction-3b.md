@@ -218,3 +218,35 @@ Context の hash の検査で、draft の `base_commit` から `git merge-base m
 * テストの結果（全体の件数：passed・skipped・failed）
 * 指示どおりにできなかった点（無ければ「なし」）
 * 判断に迷った点
+
+---
+
+## 3-B 修正 01（Claude のレビュー、2026-10-19）
+
+### 修正の許可範囲（上の許可範囲に加えて）
+
+```text
+src/novui/settingcheck.py、src/novui/follow.py、src/novui/stateupdate.py（run_state_update の始めの部分だけ）、tests/**
+```
+
+### R1：Patch の検査で、文書全体の置き換えと id の上書きが通る
+
+`check_setting_patch_policy` は次を通してしまう。
+
+* 伏線：`{"op": "replace", "path": "", "value": [...]}`（registry 全体の置き換え。既存の伏線の id の変更や削除がすべてできる）。`add` の `""` も同じ。
+* 人物・伏線：`add` による id の上書き（JSON Patch の `add` は、既にあるキーを置き換える）。`{"op": "add", "path": "/0/id", "value": "F099"}`、`{"op": "add", "path": "/id", "value": "C099"}`。
+* 人物：`add` の `""`（文書全体の置き換え）。
+
+直し方：両方の対象で、path `""` への `add`・`replace`・`remove` は FAIL。人物の `/id`、伏線の `/<添字>/id` への `add`・`replace`・`remove` は FAIL。テスト：上の5つの例がそれぞれ FAIL になること。
+
+### R2：追従の Job の検査で、読めない Job 記録を無視している
+
+`follow_main` は Job 記録が読めないとき `except Exception: pass` で飛ばす。rebase は作業ブランチを書き換えるので、読めない記録があれば止める（fail closed。`waiting_jobs_on_branch` と同じ考え方）。`ChapterError`（`job record <file> could not be read: <exc>`）にする。テスト：壊れた Job 記録があると rebase せずに `ChapterError`。
+
+### R3：重なりで止まった state_update の Job が、次の state-update を妨げる
+
+`FollowConflict` のとき run_state_update は WAITING_HUMAN の Job 記録（branch 付き）を残す。Human が main の側を直して（例：設定を戻して）もう一度 state-update すると、`follow_main` はその記録を「作業中の Job」とみなして `ChapterError` を出し、先に進めない。
+
+直し方：run_state_update で `follow_main` を呼ぶ前に、同じ章・同じブランチの state_update の Job 記録のうち、state が WAITING_HUMAN で、最後の check が `follow_main` の FAIL のものを、`HUMAN_CANCEL`（理由 `retried by state-update`）で閉じる。テスト：重なりで WAITING_HUMAN → main の側の変更を戻す commit（重ならなくなる）→ 再度 state-update で、古い Job が CANCELLED になり、新しい Job が提案まで進むこと。
+
+報告は `docs/phase3/reports/3b-01.md` に書き、全体の試験の件数を入れて commit・push する。
