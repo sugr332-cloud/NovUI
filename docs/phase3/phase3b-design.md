@@ -63,7 +63,14 @@
 
 | # | 内容 | 推奨案 | 決定 |
 |---|---|---|---|
-| 1 | setting_change で変えられる設定 | YAML の人物と伏線だけ。Markdown の設定は直接編集で変える | |
-| 2 | 作業中に設定が変わった場合 | 作業ブランチを main に追従させる（rebase、重ならないときだけ）。重なれば止める | |
-| 3 | 影響範囲分析で見る章 | plan のある章すべて（FINAL は summary、それ以外は plan）。outline だけの章は見ない | |
-| 4 | Claude の呼び出し | 方針・対象ごとの Patch・影響範囲分析の3段に分ける | |
+| 1 | setting_change で変えられる設定 | YAML の人物と伏線だけ。Markdown の設定は直接編集で変える | 推奨案（2026-10-19） |
+| 2 | 作業中に設定が変わった場合 | 作業ブランチを main に追従させる（rebase、重ならないときだけ）。重なれば止める | 推奨案（2026-10-19） |
+| 3 | 影響範囲分析で見る章 | plan のある章すべて（FINAL は summary、それ以外は plan）。outline だけの章は見ない | 推奨案（2026-10-19） |
+| 4 | Claude の呼び出し | 方針・対象ごとの Patch・影響範囲分析の3段に分ける | 推奨案（2026-10-19） |
+
+## 7. 実装の細部（指示書を書くときに決めたこと、2026-10-19）
+
+1. **setting_change Job の終わり方**：提案を保存したら Job は COMPLETED にする（plan_revision と同じ。承認の待ちは提案の status で表す）。questions のときだけ WAITING_HUMAN。キューは止まらずに次へ進む。
+2. **追従の後の draft_consistency**：rebase すると、draft Job の Context の hash（設定ファイル）が今の作業ブランチと合わなくなる。draft の `base_commit` から `git merge-base main <branch>` までに main で変わったパスの hash の違いは、FAIL にせず、WARNING `context_followed_main` に出す。
+3. **振り分けの scope setting で scope_mismatch のとき**：proposed_jobs を空にし、status `questions` と同じ扱い（承認できない。Human は reject-routing して直接編集する）。
+4. **setting_patch の出力の形**：state_patch と同じ schema（type `state_patch`）を使う。変えてよい範囲の検査は、state_update とは別の関数で行う。

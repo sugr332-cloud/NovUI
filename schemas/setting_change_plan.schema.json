@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novui.local/schemas/setting_change_plan.schema.json",
+  "description": "Claude's plan of a setting_change Job: which setting files to change and how (phase3b-design §3.1)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "setting_change_plan" },
+    "instruction_id": { "$ref": "common.schema.json#/$defs/instruction_id" },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": { "$ref": "common.schema.json#/$defs/relpath" },
+          "change": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+        },
+        "required": ["target", "change"]
+      }
+    },
+    "new_foreshadowing": { "type": "integer", "minimum": 0 },
+    "questions": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nonempty_string" }
+    }
+  },
+  "required": ["type", "instruction_id", "targets", "new_foreshadowing", "questions"]
+}

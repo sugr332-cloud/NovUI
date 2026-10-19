@@ -14,9 +14,14 @@
           "item_id": { "type": "string", "pattern": "^Q-[0-9]{4,}$" },
           "job_type": {
             "type": "string",
-            "enum": ["range_edit", "chapter_rewrite", "plan_revision", "draft"]
+            "enum": ["range_edit", "chapter_rewrite", "plan_revision", "draft", "setting_change"]
           },
-          "chapter_id": { "$ref": "common.schema.json#/$defs/chapter_id" },
+          "chapter_id": {
+            "oneOf": [
+              { "$ref": "common.schema.json#/$defs/chapter_id" },
+              { "type": "null" }
+            ]
+          },
           "source": {
             "type": "object",
             "additionalProperties": false,
