@@ -73,16 +73,17 @@ def follow_main(
         for p in sorted(jdir.glob("job-*.yaml")):
             try:
                 rec = load_job_record(p)
-                if rec.get("job_id") == pending_job_id:
-                    continue
-                if rec.get("branch") == info.branch and rec.get("state") in _ACTIVE_STATES:
-                    raise ChapterError(
-                        f"job {rec.get('job_id')} on branch {info.branch} is in progress ({rec.get('state')})"
-                    )
-            except (ChapterError, ValueError):
+            except ChapterError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                raise ChapterError(f"job record {p} could not be read: {exc}") from exc
+
+            if rec.get("job_id") == pending_job_id:
+                continue
+            if rec.get("branch") == info.branch and rec.get("state") in _ACTIVE_STATES:
+                raise ChapterError(
+                    f"job {rec.get('job_id')} on branch {info.branch} is in progress ({rec.get('state')})"
+                )
 
     # 3. Path overlap check
     branch_paths = set(

@@ -75,13 +75,15 @@ def check_setting_patch_policy(
             errs.append(f"{label}: invalid pointer {path!r}: {exc}")
             continue
 
+        # 両方の対象で、path "" への add・replace・remove は FAIL
+        if path in ("", "/") or not toks:
+            if op_name in ("add", "replace", "remove"):
+                errs.append(f"{label}: {op_name} of the whole document is not allowed")
+
         if is_char:
-            # 人物：/id への replace・remove、空 path（文書全体）への replace・remove は FAIL
-            if path in ("", "/"):
-                if op_name in ("replace", "remove"):
-                    errs.append(f"{label}: {op_name} of the whole document is not allowed")
-            elif path == "/id" or toks == ["id"]:
-                if op_name in ("replace", "remove"):
+            # 人物：/id への add・replace・remove は FAIL
+            if path == "/id" or toks == ["id"]:
+                if op_name in ("add", "replace", "remove"):
                     errs.append(f"{label}: {op_name} of /id is not allowed")
 
         elif is_reg:
@@ -90,9 +92,9 @@ def check_setting_patch_policy(
             if len(toks) == 1 and _INDEX_RE.match(toks[0]):
                 if op_name in ("replace", "remove"):
                     errs.append(f"{label}: {op_name} of top-level item /{toks[0]} is not allowed")
-            # 既存の要素の /<添字>/id の replace・remove は FAIL
+            # 既存の要素の /<添字>/id の add・replace・remove は FAIL
             elif len(toks) == 2 and _INDEX_RE.match(toks[0]) and toks[1] == "id":
-                if op_name in ("replace", "remove"):
+                if op_name in ("add", "replace", "remove"):
                     errs.append(f"{label}: {op_name} of /{toks[0]}/id is not allowed")
 
             # トップレベルへの add は /- だけで、value の id は new_foreshadow_ids を順に使っていなければ FAIL

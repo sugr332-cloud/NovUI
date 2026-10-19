@@ -1007,3 +1007,112 @@ def test_cli_setting_commands(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert rc_cj == 0
     cj_out = capsys.readouterr().out
     assert f"Job {rec_q['job_id']} finished with state: CANCELLED" in cj_out
+
+
+# ==============================================================================
+# Phase 3-B Review Fixes 01: R1, R2, R3
+# ==============================================================================
+
+def test_r1_patch_policy_rejects_whole_doc_and_id_override(tmp_path: Path) -> None:
+    settings, work = setup_novel(tmp_path)
+    repo = work.path
+    c_doc = load_yaml(repo / "characters" / "C001.yaml")
+    reg_doc = load_yaml(repo / "foreshadowing" / "registry.yaml")
+
+    # 1. 伏線: {"op": "replace", "path": "", "value": [...]}
+    p1 = {"operations": [{"op": "replace", "path": "", "value": []}]}
+    res1 = check_setting_patch_policy(p1, reg_doc, target="foreshadowing/registry.yaml", new_foreshadow_ids=[])
+    assert res1.status == "FAIL"
+    assert "whole document" in res1.details[0]
+
+    # 2. 伏線: {"op": "add", "path": "", "value": [...]}
+    p2 = {"operations": [{"op": "add", "path": "", "value": []}]}
+    res2 = check_setting_patch_policy(p2, reg_doc, target="foreshadowing/registry.yaml", new_foreshadow_ids=[])
+    assert res2.status == "FAIL"
+    assert "whole document" in res2.details[0]
+
+    # 3. 伏線: {"op": "add", "path": "/0/id", "value": "F099"}
+    p3 = {"operations": [{"op": "add", "path": "/0/id", "value": "F099"}]}
+    res3 = check_setting_patch_policy(p3, reg_doc, target="foreshadowing/registry.yaml", new_foreshadow_ids=[])
+    assert res3.status == "FAIL"
+    assert "/0/id" in res3.details[0]
+
+    # 4. 人物: {"op": "add", "path": "/id", "value": "C099"}
+    p4 = {"operations": [{"op": "add", "path": "/id", "value": "C099"}]}
+    res4 = check_setting_patch_policy(p4, c_doc, target="characters/C001.yaml", new_foreshadow_ids=[])
+    assert res4.status == "FAIL"
+    assert "/id" in res4.details[0]
+
+    # 5. 人物: {"op": "add", "path": "", "value": {...}}
+    p5 = {"operations": [{"op": "add", "path": "", "value": {"id": "C001", "name": "新カイ"}}]}
+    res5 = check_setting_patch_policy(p5, c_doc, target="characters/C001.yaml", new_foreshadow_ids=[])
+    assert res5.status == "FAIL"
+    assert "whole document" in res5.details[0]
+
+
+def test_r2_follow_main_corrupt_job_record_fails_closed(tmp_path: Path) -> None:
+    from test_stateupdate import validated
+    settings, work, draft_rec = validated(tmp_path)
+    repo = work.path
+
+    # Advance main so rebase is needed
+    c2 = load_yaml(repo / "characters" / "C002.yaml")
+    c2["personality"] = ["変更"]
+    (repo / "characters" / "C002.yaml").write_text(dumps_yaml(c2), encoding="utf-8")
+    commit_all(repo, "main advance", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+
+    # Put a corrupt job record in jobs directory
+    jdir = jobs_dir(settings, work.work_key)
+    (jdir / "job-999.yaml").write_text("invalid: [broken yaml", encoding="utf-8")
+
+    # follow_main should raise ChapterError without rebasing
+    with pytest.raises(ChapterError, match="could not be read"):
+        follow_main(settings, work, CH)
+
+
+def test_r3_state_update_retry_after_conflict_revert(tmp_path: Path) -> None:
+    from test_stateupdate import validated, good_su
+    settings, work, draft_rec = validated(tmp_path)
+    repo = work.path
+    wt = Path(draft_rec["worktree"])
+
+    # Branch modifies draft.md (normal draft edit)
+    (wt / "chapters" / CH / "draft.md").write_text("ブランチの新しい本文\n", encoding="utf-8")
+    commit_all(wt, "branch change draft.md", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+
+    # Main erroneously modifies draft.md (creating overlap conflict)
+    draft_main_orig = (repo / "chapters" / CH / "draft.md").read_text(encoding="utf-8") if (repo / "chapters" / CH / "draft.md").is_file() else None
+    (repo / "chapters" / CH / "draft.md").write_text("mainの誤った本文\n", encoding="utf-8")
+    commit_all(repo, "main change draft.md", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+
+    # 1. run_state_update -> FollowConflict -> WAITING_HUMAN
+    rec1 = run_state_update(settings, work, CH, claude_runner=good_su())
+    assert rec1["state"] == "WAITING_HUMAN"
+    assert rec1["checks"][-1]["name"] == "follow_main"
+    assert rec1["checks"][-1]["status"] == "FAIL"
+    old_job_id = rec1["job_id"]
+
+    # 2. Main reverts change on draft.md and advances with setting change on C002
+    if draft_main_orig is not None:
+        (repo / "chapters" / CH / "draft.md").write_text(draft_main_orig, encoding="utf-8")
+    else:
+        (repo / "chapters" / CH / "draft.md").unlink()
+    c2 = load_yaml(repo / "characters" / "C002.yaml")
+    c2["personality"] = ["ミサキ変更"]
+    (repo / "characters" / "C002.yaml").write_text(dumps_yaml(c2), encoding="utf-8")
+    commit_all(repo, "main revert draft and change C002", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+
+    # 3. Re-run state_update
+    rec2 = run_state_update(settings, work, CH, claude_runner=good_su())
+    assert rec2["state"] == "WAITING_HUMAN"
+    assert rec2["job_id"] != old_job_id
+
+    # Old job record is now CANCELLED
+    rec1_after = load_job_record(jobs_dir(settings, work.work_key) / f"{old_job_id}.yaml")
+    assert rec1_after["state"] == "CANCELLED"
+    assert rec1_after["history"][-1]["reason"] == "retried by state-update"
+
+    # New job reached proposal stage
+    prop = pending_proposal(settings, work.work_key, CH)
+    assert prop is not None
+    assert prop["job_id"] == rec2["job_id"]

@@ -162,6 +162,26 @@ def run_state_update(
         if old_record["state"] != JobState.WAITING_HUMAN.name:
             raise ChapterError(f"job {pending['job_id']} is {old_record['state']}, not WAITING_HUMAN")
 
+    # R3: 同じ章・同じブランチの state_update の Job 記録のうち、
+    # state が WAITING_HUMAN で最後の check が follow_main FAIL のものを閉じる
+    jdir = jobs_dir(settings, work.work_key)
+    if jdir.is_dir():
+        for p in sorted(jdir.glob("job-*.yaml")):
+            try:
+                rec = load_job_record(p)
+            except Exception:
+                continue
+            if (
+                rec.get("chapter_id") == chapter_id
+                and rec.get("branch") == branch
+                and rec.get("job_type") == STATE_UPDATE_JOB_TYPE
+                and rec.get("state") == JobState.WAITING_HUMAN.name
+            ):
+                checks = rec.get("checks", [])
+                if checks and checks[-1].get("name") == "follow_main" and checks[-1].get("status") == "FAIL":
+                    cancelled_rec = apply_transition(rec, JobEvent.HUMAN_CANCEL, reason="retried by state-update")
+                    save_job_record(jdir, cancelled_rec)
+
     follow_check: dict[str, Any] | None = None
     try:
         new_head = follow_main(settings, work, chapter_id, allow_pending=replace)
