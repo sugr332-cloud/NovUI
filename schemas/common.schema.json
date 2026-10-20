@@ -164,7 +164,8 @@
         "state_update",
         "setting_change",
         "resolve_request",
-        "routing"
+        "routing",
+        "impact_analysis"
       ]
     }
   }

@@ -46,7 +46,13 @@
 
 | # | 内容 | 推奨案 | 決定 |
 |---|---|---|---|
-| 1 | 本文の内容変更で DRAFTED に戻った章を、どう FINAL に戻すか | `reopen` で作業ブランチを作り、今の validate → state-update → final-approve に乗せる（要約も作り直される） | |
-| 2 | plan.yaml の内容変更 | PLAN_APPROVED の章は PLANNED に戻して承認をやり直す。FINAL などは状態を変えず後続章に要確認 | |
-| 3 | 直接編集の対象外のファイルが混ざったとき | 何も commit しない（一部だけ commit しない） | |
-| 4 | 保護対象の直接編集の後の影響範囲分析が失敗したとき | commit は残し、`analyze-impact` で後からやり直せるようにする | |
+| 1 | 本文の内容変更で DRAFTED に戻った章を、どう FINAL に戻すか | `reopen` で作業ブランチを作り、今の validate → state-update → final-approve に乗せる（要約も作り直される） || 推奨案（2026-10-20） |
+| 2 | plan.yaml の内容変更 | PLAN_APPROVED の章は PLANNED に戻して承認をやり直す。FINAL などは状態を変えず後続章に要確認 || 推奨案（2026-10-20） |
+| 3 | 直接編集の対象外のファイルが混ざったとき | 何も commit しない（一部だけ commit しない） || 推奨案（2026-10-20） |
+| 4 | 保護対象の直接編集の後の影響範囲分析が失敗したとき | commit は残し、`analyze-impact` で後からやり直せるようにする || 推奨案（2026-10-20） |
+
+## 6. 実装の細部（指示書を書くときに決めたこと、2026-10-20）
+
+1. 影響範囲分析は、edit と analyze-impact（3-D の sync でも使う）から呼ぶ Claude の Job とする。job_type `impact_analysis`（common.schema.json の job_type に追加）。
+2. reopen の Job 記録は job_type `draft`（validate などが draft Job の記録を前提にするため）。AGY を呼ばない COMPLETED の記録で、history の理由に `reopened after human content edit` を残す（job_record の schema は項目を増やせないため）。
+3. reopen した章の要確認（edit の時点で立てた、この章自身の `previous_chapter_changed`）は、final-approve の前に review-done で外す。
