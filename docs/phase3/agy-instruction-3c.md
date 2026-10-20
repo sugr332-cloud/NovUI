@@ -127,3 +127,38 @@ phase3c-design §3 と §6.2 のとおり。
 * テストの結果（全体の件数：passed・skipped・failed）
 * 指示どおりにできなかった点（無ければ「なし」）
 * 判断に迷った点
+
+## 3-C 修正 01（Claude のレビュー、2026-10-20）
+
+`finalize.py` の修正（作業ブランチ作成の後に main の chapter.yaml が変わったときだけ main の要確認を見る）は、そのまま受け入れる。
+
+### 修正の許可範囲（上の許可範囲に加えて）
+
+```text
+src/novui/directedit.py、src/novui/impactjob.py、src/novui/cli.py（analyze-impact の部分だけ）、tests/**
+```
+
+### R1：edit が途中で失敗すると、main の作業ツリーに chapter.yaml の書き換えが残る
+
+`direct_edit` の 5（章の扱い）は、章ごとに検査しながら chapter.yaml を作業ツリーに書く。書いた後の章で失敗すると（例：後続章の作業ブランチに RUNNING の Job があり、`mark_review_required` が `ChapterError`。後の章の遷移が `InvalidTransition`）、書いた chapter.yaml が元に戻らない。commit の失敗のときしか戻していないためである。Human がもう一度 `edit` すると、chapter.yaml が「対象外のファイル」として拒否され、先に進めない。
+
+直し方：
+
+1. 5 では、新しい chapter.yaml の中身（dict）をすべてメモリの上で作り、schema と semantics の検査を済ませる。この段階では作業ツリーにも作業ブランチにも書かない。
+2. 作業ブランチのある後続章への `mark_review_required(..., branch_only=True)` は、1 がすべて通った後に行う。
+3. その後で main の chapter.yaml を書き、commit する。2 の後の失敗（書き込み・commit）では、書いた chapter.yaml を元の中身に戻し、index を戻す（今の commit 失敗のときの処理を、この範囲全体に広げる）。
+4. どの失敗でも、Human の編集したファイルはそのまま残る。
+
+テスト：後続章の作業ブランチに RUNNING の Job 記録がある状態で、前の章の draft.md を content で edit → `ChapterError`、main の作業ツリーで chapter.yaml が変わっていない（`git status` に Human の draft.md だけが出る）、どのブランチにも commit が増えていない。その Job 記録を COMPLETED にしてもう一度 edit すると成功する。
+
+### R2：analyze-impact は、main の最新の commit にしか使えない
+
+`run_impact_job` は head が main の HEAD でなければ `ValueError` にする。edit の後の分析が失敗して、Human が先に別の commit をすると、`analyze-impact --commit <edit の commit>` がやり直せない（決定 4 の「後からやり直せる」を満たさない）。
+
+直し方：head は「main の HEAD、またはその祖先」であればよい（`git merge-base --is-ancestor head main`）。祖先でなければ `ValueError`。差分は今までどおり `<head の親>..head` の保護対象。要確認は、今の main（と作業ブランチ）の chapter.yaml に立てる（今の `mark_review_required` のまま）。
+
+テスト：edit（分析失敗）→ 別の保護対象でない commit → `analyze-impact --commit <edit の commit>` が成功し、要確認が立つ。main の祖先でない commit（別のブランチの commit）で `ValueError`。
+
+### 報告
+
+`docs/phase3/reports/3c-01.md` に書き、全体の試験の件数を入れて commit・push する。

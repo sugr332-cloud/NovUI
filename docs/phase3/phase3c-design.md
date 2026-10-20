@@ -56,3 +56,4 @@
 1. 影響範囲分析は、edit と analyze-impact（3-D の sync でも使う）から呼ぶ Claude の Job とする。job_type `impact_analysis`（common.schema.json の job_type に追加）。
 2. reopen の Job 記録は job_type `draft`（validate などが draft Job の記録を前提にするため）。AGY を呼ばない COMPLETED の記録で、history の理由に `reopened after human content edit` を残す（job_record の schema は項目を増やせないため）。
 3. reopen した章の要確認（edit の時点で立てた、この章自身の `previous_chapter_changed`）は、final-approve の前に review-done で外す。
+4. 最終承認の要確認の判定（3-C の実装で AGY が直したもの、2026-10-20 に受け入れ）：作業ブランチの chapter.yaml の要確認を見る。main の chapter.yaml の要確認は、作業ブランチの分岐点（merge-base）の後に main の chapter.yaml が変わったときだけ見る。edit の時点で main に立った要確認は、reopen の作業ブランチに引き継がれ、review-done で外せる。
