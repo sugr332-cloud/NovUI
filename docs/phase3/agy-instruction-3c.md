@@ -162,3 +162,21 @@ src/novui/directedit.py、src/novui/impactjob.py、src/novui/cli.py（analyze-im
 ### 報告
 
 `docs/phase3/reports/3c-01.md` に書き、全体の試験の件数を入れて commit・push する。
+
+## 3-C 修正 02（Claude のレビュー、2026-10-20）
+
+### 修正の許可範囲
+
+```text
+src/novui/directedit.py、tests/**
+```
+
+### R3：同じ edit で、plan を直した章が後続章でもあると、PLANNED への戻しが消える
+
+修正 01 で chapter.yaml をメモリの上で作るようにしたため、5.3（後続章の要確認）は、5.2 で作った新しい中身ではなく、作業ツリーの元の chapter.yaml（`read_chapter_meta`）から作り直し、`new_chapter_yamls` を上書きする。例：1 回の content の edit で、C001（FINAL）の draft.md と C003（PLAN_APPROVED、作業ブランチなし）の plan.yaml を直すと、C003 は要確認だけが立って PLAN_APPROVED のまま残る（PLANNED に戻らない）。
+
+直し方：5.3 で作業ブランチの無い章は、`new_chapter_yamls` にすでにあればそれに `review_marked` を当て、無ければ `read_chapter_meta` の中身に当てる。`orig_chapter_yamls` は最初に読んだ中身を保つ（上書きしない）。
+
+テスト：上の例で、C003 が PLANNED かつ要確認あり、C001 が DRAFTED、commit が1つ。
+
+報告は `docs/phase3/reports/3c-02.md` に書き、全体の試験の件数を入れて commit・push する。
