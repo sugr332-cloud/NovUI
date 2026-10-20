@@ -267,16 +267,20 @@ def direct_edit(
             if branches:
                 branch_targets.append((sub_cid, detail))
             else:
-                sub_meta = read_chapter_meta(work.path, sub_cid)
-                if sub_meta is None:
-                    raise ChapterError(f"chapter.yaml not found for {sub_cid}")
+                if sub_cid in new_chapter_yamls:
+                    sub_meta = new_chapter_yamls[sub_cid]
+                else:
+                    sub_meta = read_chapter_meta(work.path, sub_cid)
+                    if sub_meta is None:
+                        raise ChapterError(f"chapter.yaml not found for {sub_cid}")
+                    orig_chapter_yamls[sub_cid] = sub_meta
+
                 new_sub_meta = review_marked(sub_meta, "previous_chapter_changed", detail, at)
                 validate_or_raise(new_sub_meta, "chapter")
                 sem = check_chapter(new_sub_meta)
                 if sem:
                     raise ChapterError(f"Semantic error in chapter.yaml for {sub_cid}: {sem}")
 
-                orig_chapter_yamls[sub_cid] = sub_meta
                 new_chapter_yamls[sub_cid] = new_sub_meta
 
             review_marked_cids.append(sub_cid)

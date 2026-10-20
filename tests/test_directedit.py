@@ -773,3 +773,81 @@ def test_analyze_impact_ancestor_commit_and_non_ancestor_reject(tmp_path: Path) 
             head=other_commit,
             reason="test other branch",
         )
+
+
+def test_direct_edit_content_plan_subsequent_chapter_retains_planned_state(tmp_path: Path) -> None:
+    """R3: In a single content edit, editing draft.md of ch-001 and plan.yaml of subsequent ch-003
+
+    (PLAN_APPROVED, no branch) correctly reverts ch-003 to PLANNED and sets review_required on it.
+    ch-001 becomes DRAFTED, and only 1 commit is created.
+    """
+    settings, work = setup_novel(tmp_path)
+    repo = work.path
+    setup_final_chapter(settings, work, "ch-001")
+    setup_final_chapter(settings, work, "ch-002")
+
+    # Setup ch-003 in PLAN_APPROVED state without work branch
+    add_chapter(settings, work, "ch-003", "第三章", "第三章アウトライン\n")
+    plan3 = make_plan("ch-003")
+    transition_on_main(
+        settings, work, "ch-003", ChapterEvent.PLAN_WRITTEN,
+        subject="plan ch-003",
+        trailers=[("NovUI-Job", "job-3")],
+        extra_files={"chapters/ch-003/plan.yaml": dumps_yaml(plan3).encode("utf-8")},
+        last_job="job-3",
+    )
+    approve_plan(settings, work, "ch-003")
+    meta3_init = read_chapter_meta(repo, "ch-003")
+    assert meta3_init is not None
+    assert meta3_init["state"] == ChapterState.PLAN_APPROVED.name
+    assert meta3_init["review_required"] is False
+
+    # 1. Edit draft.md of ch-001 (FINAL -> DRAFTED)
+    draft1_p = repo / "chapters/ch-001/draft.md"
+    orig_text = draft1_p.read_text(encoding="utf-8")
+    new_text = orig_text.replace("門を通った。", "門を通った。改訂。")
+    draft1_p.write_text(new_text, encoding="utf-8")
+
+    # 2. Edit plan.yaml of ch-003 (PLAN_APPROVED -> PLANNED)
+    plan3_doc = load_yaml(repo / "chapters/ch-003/plan.yaml")
+    plan3_doc["pov"] = "一人称視点"
+    write_yaml_atomic(repo / "chapters/ch-003/plan.yaml", plan3_doc)
+
+    head_before = head_commit(repo, "main")
+
+    # 3. Direct edit (content)
+    res = direct_edit(settings, work, kind="content", note="ch-001 draft & ch-003 plan edit")
+
+    # Verify single commit
+    commit_hash = res["commit"]
+    assert commit_hash is not None
+    assert head_commit(repo, "main") == commit_hash
+    parents_out = run_git(repo, "rev-list", "--parents", "-n", "1", commit_hash).decode("utf-8").strip()
+    assert parents_out.split()[1] == head_before
+
+    assert res["chapters_drafted"] == ["ch-001"]
+    assert res["chapters_replanned"] == ["ch-003"]
+    assert res["review_marked"] == ["ch-002", "ch-003"]
+
+    # ch-001: DRAFTED and review_required
+    meta1 = read_chapter_meta(repo, "ch-001")
+    assert meta1 is not None
+    assert meta1["state"] == ChapterState.DRAFTED.name
+    assert meta1["review_required"] is True
+
+    # ch-002: FINAL and review_required
+    meta2 = read_chapter_meta(repo, "ch-002")
+    assert meta2 is not None
+    assert meta2["state"] == ChapterState.FINAL.name
+    assert meta2["review_required"] is True
+
+    # ch-003: PLANNED (reverted from PLAN_APPROVED) and review_required
+    meta3 = read_chapter_meta(repo, "ch-003")
+    assert meta3 is not None
+    assert meta3["state"] == ChapterState.PLANNED.name
+    assert meta3["review_required"] is True
+    assert any(
+        r["code"] == "previous_chapter_changed" and "ch-001 content edited" in r["detail"]
+        for r in meta3["review_reasons"]
+    )
+
