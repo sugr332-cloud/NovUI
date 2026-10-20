@@ -284,7 +284,13 @@ def final_approve(settings: Settings, work: WorkInfo, chapter_id: str) -> str:
     main_meta = read_chapter_meta(repo, chapter_id)
     if main_meta is None:
         raise ChapterError(f"chapter.yaml of {chapter_id!r} not found on main")
-    review_required = bool(main_meta["review_required"]) or bool(branch_meta["review_required"])
+    review_required = bool(branch_meta["review_required"])
+    if not review_required and bool(main_meta["review_required"]):
+        # Check if main's chapter.yaml changed since branch was created
+        ch_path = f"chapters/{chapter_id}/chapter.yaml"
+        diff_out = run_git(repo, "diff", "--name-only", info.jw.base_commit, "main", "--", ch_path).strip()
+        if diff_out:
+            review_required = True
     final_state = next_chapter_state(  # raises InvalidTransition while review_required is true
         ChapterState.HUMAN_APPROVED, ChapterEvent.FINAL_APPROVED, review_required=review_required
     )

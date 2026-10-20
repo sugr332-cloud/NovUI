@@ -18,10 +18,12 @@ from novui.claude_cli import run_claude
 from novui.claudejob import ClaudeRunner
 from novui.config import Settings, load_settings
 from novui.container import run_container
+from novui.directedit import direct_edit, reopen_chapter
 from novui.draftjob import run_chapter_draft_job
 from novui.editjob import EDIT_JOB_TYPES, cancel_edit_job, run_chapter_rewrite_job, run_range_edit_job
 from novui.export import export_chapter, write_export
 from novui.finalize import discard_cycle, final_approve, waiting_jobs_on_branch
+from novui.impactjob import run_impact_job
 from novui.jobqueue import cancel_item, fix_findings, load_queue, numbered_findings, queue_lock, run_queue
 from novui.jobrecord import apply_transition, load_job_record, save_job_record
 from novui.jobrunner import ContainerRunner, jobs_dir
@@ -245,6 +247,24 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rdone = subparsers.add_parser("review-done")
     p_rdone.add_argument("--work", required=True, help="Novel work key")
     p_rdone.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # edit --work <key> --kind typo|content [--no-impact] [--note <text>]
+    p_edit = subparsers.add_parser("edit")
+    p_edit.add_argument("--work", required=True, help="Novel work key")
+    p_edit.add_argument("--kind", required=True, choices=["typo", "content"], help="Kind of edit: typo or content")
+    p_edit.add_argument("--no-impact", action="store_true", help="Do not run impact analysis")
+    p_edit.add_argument("--note", default=None, help="Note or description for the edit")
+
+    # reopen --work <key> --chapter <id>
+    p_reopen = subparsers.add_parser("reopen")
+    p_reopen.add_argument("--work", required=True, help="Novel work key")
+    p_reopen.add_argument("--chapter", required=True, help="Chapter ID")
+
+    # analyze-impact --work <key> --commit <sha> [--reason <text>]
+    p_aimp = subparsers.add_parser("analyze-impact")
+    p_aimp.add_argument("--work", required=True, help="Novel work key")
+    p_aimp.add_argument("--commit", required=True, help="Commit hash to analyze")
+    p_aimp.add_argument("--reason", default=None, help="Reason/instruction for impact analysis")
 
     # show --work <key> [--chapter <id>]
     p_show = subparsers.add_parser("show")
@@ -721,6 +741,89 @@ def main(
             work = get_work(cfg, args.work)
             c_hash = clear_review_required(cfg, work, args.chapter)
             print(f"Review required cleared for chapter {args.chapter} (commit {c_hash})")
+            return 0
+
+        elif args.subcommand == "edit":
+            work = get_work(cfg, args.work)
+            res = direct_edit(
+                cfg,
+                work,
+                kind=args.kind,
+                note=args.note,
+                run_impact=not args.no_impact,
+                claude_runner=claude_runner,
+            )
+            print(f"Committed: {res['commit']}")
+            print("Modified paths:")
+            for p in res["paths"]:
+                print(f"  - {p}")
+            if res["chapters_drafted"]:
+                print(f"Drafted chapters: {', '.join(res['chapters_drafted'])}")
+            if res["chapters_replanned"]:
+                print(f"Replanned chapters: {', '.join(res['chapters_replanned'])}")
+            if res["review_marked"]:
+                print(f"Review marked chapters: {', '.join(res['review_marked'])}")
+            if res.get("impact_job"):
+                print(f"Impact analysis Job: {res['impact_job']}")
+                jdir = jobs_dir(cfg, work.work_key)
+                rec_path = jdir / f"{res['impact_job']}.yaml"
+                if rec_path.is_file():
+                    rec = load_job_record(rec_path)
+                    affected_chk = next((c for c in rec.get("checks", []) if c.get("name") == "impact_affected"), None)
+                    if affected_chk and affected_chk.get("details"):
+                        print("  Affected chapters:")
+                        for d in affected_chk["details"]:
+                            print(f"    - {d}")
+                    notes_chk = next((c for c in rec.get("checks", []) if c.get("name") == "impact_notes"), None)
+                    if notes_chk and notes_chk.get("details"):
+                        print("  Notes:")
+                        for n in notes_chk["details"]:
+                            print(f"    - {n}")
+            if res.get("impact_error"):
+                print(f"Impact analysis failed: {res['impact_error']}")
+                print(f"You can rerun with: novui analyze-impact --work {args.work} --commit {res['commit']}")
+            return 0
+
+        elif args.subcommand == "reopen":
+            work = get_work(cfg, args.work)
+            rec = reopen_chapter(cfg, work, args.chapter)
+            print(f"Chapter {args.chapter} reopened.")
+            print(f"Job ID: {rec['job_id']}")
+            print(f"Branch: {rec['branch']}")
+            print(f"Next: run 'novui validate --work {args.work} --chapter {args.chapter}' or 'novui skip-validation --work {args.work} --chapter {args.chapter}'")
+            return 0
+
+        elif args.subcommand == "analyze-impact":
+            work = get_work(cfg, args.work)
+            from novui.gitinspect import run_git
+            parents_out = run_git(work.path, "rev-list", "--parents", "-n", "1", args.commit).decode("utf-8").strip()
+            parents = parents_out.split()[1:]
+            if not parents:
+                raise ChapterError(f"Commit {args.commit} has no parent")
+            parent_commit = parents[0]
+            reason = args.reason or f"analyze-impact {args.commit[:10]}"
+            rec, affected, notes = run_impact_job(
+                cfg,
+                work,
+                base=parent_commit,
+                head=args.commit,
+                reason=reason,
+                claude_runner=claude_runner,
+            )
+            print(f"Impact analysis Job: {rec['job_id']} [{rec['state']}]")
+            if affected:
+                print("Affected chapters:")
+                for item in affected:
+                    print(f"  - {item.get('chapter_id')}: {item.get('reason', '')}")
+            if notes:
+                print("Notes:")
+                for n in notes:
+                    print(f"  - {n}")
+            if rec["state"] != "COMPLETED":
+                last_h = rec.get("history", [])[-1] if rec.get("history") else {}
+                fail_reason = last_h.get("reason") or "impact analysis did not complete"
+                print(f"Impact analysis failed: {fail_reason}")
+                return 1
             return 0
 
         elif args.subcommand == "show":
