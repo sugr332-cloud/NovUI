@@ -215,7 +215,14 @@ def test_cli_impact_analysis_flow(tmp_path: Path, capsys: pytest.CaptureFixture[
 
     commit_sha = out.split("Committed: ")[1].splitlines()[0].strip()
 
-    # 2. Rerun with analyze-impact CLI
+    # Make another commit on main before running analyze-impact (R2 scenario)
+    draft_p = repo / "chapters/ch-001/draft.md"
+    orig_d = draft_p.read_text(encoding="utf-8")
+    draft_p.write_text(orig_d.replace("門番", "門番さん"), encoding="utf-8")
+    rc_typo = main(["edit", "--work", work.work_key, "--kind", "typo", "--note", "fix typo"], settings=settings)
+    assert rc_typo == 0
+
+    # 2. Rerun with analyze-impact CLI on earlier ancestor commit
     impact_resp = {
         "type": "impact_analysis",
         "affected": [

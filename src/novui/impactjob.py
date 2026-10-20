@@ -20,7 +20,6 @@ from novui.protected import is_protected
 from novui.settingchange import setting_context
 from novui.states import JobEvent, JobState
 from novui.validatejob import _claude_check
-from novui.workrepo import head_commit
 from novui.works import WorkInfo
 
 
@@ -37,10 +36,11 @@ def run_impact_job(
     """Execute impact_analysis Job for protected changes between base and head on main branch."""
     repo = work.path
 
-    # 1. head must be HEAD of main
-    current_head = head_commit(repo, "main")
-    if current_head != head:
-        raise ValueError(f"head commit {head} is not main HEAD ({current_head})")
+    # 1. head must be HEAD of main or its ancestor
+    try:
+        run_git(repo, "merge-base", "--is-ancestor", head, "main")
+    except GitError:
+        raise ValueError(f"head commit {head} is not an ancestor of main")
 
     # 2. base must be ancestor of head
     try:

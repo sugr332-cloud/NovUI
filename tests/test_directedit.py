@@ -20,15 +20,16 @@ from novui.chapters import (
 )
 from novui.config import Settings
 from novui.directedit import direct_edit, reopen_chapter
+from novui.draftjob import run_chapter_draft_job
 from novui.finalize import final_approve
 from novui.gitinspect import run_git
 from novui.impactjob import run_impact_job
-from novui.jobrecord import load_job_record
+from novui.jobrecord import apply_transition, load_job_record, new_job_record, save_job_record
 from novui.jobrunner import jobs_dir
 from novui.planjob import approve_plan
 from novui.procrun import ProcResult
 from novui.proposals import pending_proposal
-from novui.states import ChapterEvent, ChapterState, JobState
+from novui.states import ChapterEvent, ChapterState, JobEvent, JobState
 from novui.stateupdate import approve_state, run_state_update
 from novui.validatejob import (
     find_chapter_branch,
@@ -175,23 +176,25 @@ def test_run_impact_job_base_not_ancestor(tmp_path: Path) -> None:
         run_impact_job(settings, work, base=bogus_base, head=head, reason="test")
 
 
-def test_run_impact_job_head_not_main_head(tmp_path: Path) -> None:
+def test_run_impact_job_head_not_main_ancestor(tmp_path: Path) -> None:
     settings, work = setup_novel(tmp_path)
     repo = work.path
     base = head_commit(repo, "main")
-    # Modify a protected file
+
+    # Create a separate branch with a commit not merged into main
+    run_git(repo, "checkout", "-b", "other-branch")
     c1 = load_yaml(repo / "characters" / "C001.yaml")
     c1["personality"] = ["情熱的"]
     write_yaml_atomic(repo / "characters" / "C001.yaml", c1)
-    head = commit_all(repo, "change C001", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
-    assert head is not None
+    other_head = commit_all(repo, "change C001 on other branch", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    assert other_head is not None
 
-    # Make another commit on main
-    add_chapter(settings, work, "ch-002", "第二章", "アウトライン\n")
+    # Switch back to main
+    run_git(repo, "checkout", "main")
 
-    # head is no longer main HEAD
-    with pytest.raises(ValueError, match="is not main HEAD"):
-        run_impact_job(settings, work, base=base, head=head, reason="test")
+    # head is on other-branch and not an ancestor of main
+    with pytest.raises(ValueError, match="is not an ancestor of main"):
+        run_impact_job(settings, work, base=base, head=other_head, reason="test")
 
 
 def test_run_impact_job_success_with_affected_and_notes(tmp_path: Path) -> None:
@@ -614,3 +617,159 @@ def test_reopen_precondition_errors(tmp_path: Path) -> None:
     # 3. Chapter not in chapters-order.yaml
     with pytest.raises(ChapterError, match="not found in chapters-order.yaml"):
         reopen_chapter(settings, work, "ch-999")
+
+
+# ==============================================================================
+# 3-C 修正 01: R1 & R2 tests
+# ==============================================================================
+
+def test_direct_edit_content_with_running_subsequent_job_leaves_working_tree_clean(tmp_path: Path) -> None:
+    """R1: If direct_edit fails because a subsequent chapter has a RUNNING job,
+
+    chapter.yaml must not be modified in main working tree, git status shows only Human's draft.md,
+    no commit is added on any branch. After completing the job, edit succeeds.
+    """
+    settings, work = setup_novel(tmp_path)
+    repo = work.path
+    setup_final_chapter(settings, work, "ch-001")
+
+    # Add ch-002 with active worktree and job branch
+    add_chapter(settings, work, "ch-002", "第二章", "第二章アウトライン\n")
+    plan2 = make_plan("ch-002")
+    transition_on_main(
+        settings, work, "ch-002", ChapterEvent.PLAN_WRITTEN,
+        subject="plan ch-002",
+        trailers=[("NovUI-Job", "job-2")],
+        extra_files={"chapters/ch-002/plan.yaml": dumps_yaml(plan2).encode("utf-8")},
+        last_job="job-2",
+    )
+    approve_plan(settings, work, "ch-002")
+    run_chapter_draft_job(settings, work, "ch-002", container_runner=_agy_runner(GOOD_TEXT))
+
+    branches = chapter_branches(repo, "ch-002")
+    assert len(branches) == 1
+    ch2_branch = branches[0]
+    jdir = jobs_dir(settings, work.work_key)
+
+    # Create a RUNNING job record associated with ch2_branch
+    running_job_id = "job-888"
+    rec = new_job_record(running_job_id, "draft", chapter_id="ch-002")
+    rec["branch"] = ch2_branch
+    rec = apply_transition(rec, JobEvent.LOCK_ACQUIRED)
+    assert rec["state"] == JobState.RUNNING.name
+    save_job_record(jdir, rec)
+
+    main_head_before = head_commit(repo, "main")
+    ch2_head_before = head_commit(repo, ch2_branch)
+
+    # Human edits draft.md of ch-001
+    draft1_path = repo / "chapters/ch-001/draft.md"
+    orig_draft1 = draft1_path.read_text(encoding="utf-8")
+    new_draft1 = orig_draft1.replace("門を通った。", "門を通った。編集された内容。")
+    draft1_path.write_text(new_draft1, encoding="utf-8")
+
+    # Attempt direct_edit with content -> fails with ChapterError
+    with pytest.raises(ChapterError, match=f"Active job {running_job_id} in state RUNNING"):
+        direct_edit(settings, work, kind="content", note="先行章編集")
+
+    # main working tree: chapter.yaml unchanged, only draft.md appears in git status
+    status_out = run_git(repo, "-c", "diff.renames=false", "status", "--porcelain=v1").decode("utf-8").strip()
+    assert status_out == "M chapters/ch-001/draft.md"
+    meta1 = read_chapter_meta(repo, "ch-001")
+    assert meta1 is not None
+    assert meta1["state"] == ChapterState.FINAL.name
+    assert meta1["review_required"] is False
+
+    # No commit added on any branch
+    assert head_commit(repo, "main") == main_head_before
+    assert head_commit(repo, ch2_branch) == ch2_head_before
+
+    # Now transition the running job record to COMPLETED
+    rec = apply_transition(rec, JobEvent.CLI_EXITED)
+    rec = apply_transition(rec, JobEvent.CHECK_PASSED, needs_validation=False)
+    assert rec["state"] == JobState.COMPLETED.name
+    save_job_record(jdir, rec)
+
+    # Edit again -> succeeds
+    res = direct_edit(settings, work, kind="content", note="先行章編集")
+    assert res["commit"] is not None
+    assert res["chapters_drafted"] == ["ch-001"]
+    assert "ch-002" in res["review_marked"]
+    assert head_commit(repo, "main") != main_head_before
+    assert head_commit(repo, ch2_branch) != ch2_head_before
+
+
+def test_analyze_impact_ancestor_commit_and_non_ancestor_reject(tmp_path: Path) -> None:
+    """R2: edit (impact failed) -> another non-protected commit -> analyze-impact --commit <edit commit>
+
+    succeeds and marks review_required. A non-ancestor commit raises ValueError.
+    """
+    settings, work = setup_novel(tmp_path)
+    repo = work.path
+    setup_final_chapter(settings, work, "ch-001")
+
+    # 1. Edit protected character C001
+    c1 = load_yaml(repo / "characters/C001.yaml")
+    c1["personality"] = ["極めて冷静沈着"]
+    write_yaml_atomic(repo / "characters/C001.yaml", c1)
+
+    # 2. direct_edit with impact failure
+    def fail_claude(**kwargs: Any) -> ProcResult:
+        return ProcResult(1, 1.0, False, None, False, b"", b"error")
+
+    res = direct_edit(settings, work, kind="content", note="カイ性格変更", claude_runner=fail_claude)
+    edit_commit = res["commit"]
+    assert edit_commit is not None
+    assert res["impact_error"] is not None
+    assert read_chapter_meta(repo, "ch-001")["review_required"] is False
+
+    # 3. Create another non-protected commit on main
+    outline1_path = repo / "chapters/ch-001/outline.md"
+    orig_outline = outline1_path.read_text(encoding="utf-8")
+    outline1_path.write_text(orig_outline + "\nメモ追記\n", encoding="utf-8")
+    res_typo = direct_edit(settings, work, kind="typo", note="メモ追記")
+    later_commit = res_typo["commit"]
+    assert later_commit != edit_commit
+    assert head_commit(repo, "main") == later_commit
+
+    # 4. analyze-impact --commit <edit_commit> succeeds and marks review_required
+    impact_resp = {
+        "type": "impact_analysis",
+        "affected": [{"chapter_id": "ch-001", "reason": "性格変更影響"}],
+        "notes": [],
+    }
+    fake = FakeClaude([impact_resp])
+
+    parents_out = run_git(repo, "rev-list", "--parents", "-n", "1", edit_commit).decode("utf-8").strip()
+    parent_of_edit = parents_out.split()[1]
+
+    rec, affected, notes = run_impact_job(
+        settings,
+        work,
+        base=parent_of_edit,
+        head=edit_commit,
+        reason="カイ性格変更の分析やり直し",
+        claude_runner=fake,
+    )
+    assert rec["state"] == JobState.COMPLETED.name
+    meta1 = read_chapter_meta(repo, "ch-001")
+    assert meta1 is not None
+    assert meta1["review_required"] is True
+
+    # 5. Non-ancestor commit raises ValueError
+    run_git(repo, "checkout", "-b", "other-branch")
+    c2 = load_yaml(repo / "characters/C002.yaml")
+    c2["personality"] = ["豪快"]
+    write_yaml_atomic(repo / "characters/C002.yaml", c2)
+    other_commit = commit_all(repo, "other branch commit", [("NovUI-Edit", "human-content")], name="Tester", email="tester@test")
+    assert other_commit is not None
+    run_git(repo, "checkout", "main")
+
+    with pytest.raises(ValueError, match="is not an ancestor of main"):
+        run_impact_job(
+            settings,
+            work,
+            base=parent_of_edit,
+            head=other_commit,
+            reason="test other branch",
+        )

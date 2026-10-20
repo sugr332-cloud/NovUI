@@ -182,7 +182,9 @@ def direct_edit(
     chapters_drafted: list[str] = []
     chapters_replanned: list[str] = []
     review_marked_cids: list[str] = []
-    written_chapter_yamls: dict[str, dict[str, Any]] = {}
+    orig_chapter_yamls: dict[str, dict[str, Any]] = {}
+    new_chapter_yamls: dict[str, dict[str, Any]] = {}
+    branch_targets: list[tuple[str, str]] = []
 
     if kind == "content":
         at = now_iso()
@@ -195,13 +197,12 @@ def direct_edit(
 
         review_candidates: list[tuple[str, str]] = []  # (sub_cid, detail)
 
-        # draft.md changed chapters -> DRAFTED
+        # 5.1 draft.md changed chapters -> DRAFTED (in-memory preparation)
         for cid in order:
             if cid in draft_cids:
                 meta = read_chapter_meta(work.path, cid)
                 if meta is None:
                     raise ChapterError(f"chapter.yaml not found for {cid}")
-                written_chapter_yamls[cid] = meta
                 cur_st = ChapterState[meta["state"]]
                 try:
                     nxt_st = next_chapter_state(cur_st, ChapterEvent.CONTENT_CHANGED)
@@ -215,13 +216,15 @@ def direct_edit(
                 sem = check_chapter(new_meta)
                 if sem:
                     raise ChapterError(f"Semantic error in chapter.yaml for {cid}: {sem}")
-                write_yaml_atomic(work.path / f"chapters/{cid}/chapter.yaml", new_meta)
+
+                orig_chapter_yamls[cid] = meta
+                new_chapter_yamls[cid] = new_meta
                 chapters_drafted.append(cid)
 
                 for sub in subsequent_chapters(order, cid):
                     review_candidates.append((sub, f"{cid} content edited"))
 
-        # plan.yaml changed chapters (without draft.md change)
+        # 5.2 plan.yaml changed chapters (without draft.md change)
         for cid in order:
             if cid in plan_cids:
                 meta = read_chapter_meta(work.path, cid)
@@ -229,7 +232,6 @@ def direct_edit(
                     raise ChapterError(f"chapter.yaml not found for {cid}")
                 cur_st = ChapterState[meta["state"]]
                 if cur_st == ChapterState.PLAN_APPROVED:
-                    written_chapter_yamls[cid] = meta
                     new_meta = dict(meta)
                     # PLAN_APPROVED to PLANNED has no ChapterEvent transition, written directly as specified
                     new_meta["state"] = ChapterState.PLANNED.name
@@ -237,7 +239,9 @@ def direct_edit(
                     sem = check_chapter(new_meta)
                     if sem:
                         raise ChapterError(f"Semantic error in chapter.yaml for {cid}: {sem}")
-                    write_yaml_atomic(work.path / f"chapters/{cid}/chapter.yaml", new_meta)
+
+                    orig_chapter_yamls[cid] = meta
+                    new_chapter_yamls[cid] = new_meta
                     chapters_replanned.append(cid)
                 elif cur_st in (
                     ChapterState.DRAFTED,
@@ -248,7 +252,7 @@ def direct_edit(
                     for sub in subsequent_chapters(order, cid):
                         review_candidates.append((sub, f"{cid} content edited"))
 
-        # Review required on subsequent chapters (excluding chapters drafted in this edit)
+        # 5.3 Review required on subsequent chapters (excluding chapters drafted in this edit)
         seen_targets: set[str] = set()
         deduped_targets: list[tuple[str, str]] = []
         for sub_cid, detail in review_candidates:
@@ -261,32 +265,34 @@ def direct_edit(
         for sub_cid, detail in deduped_targets:
             branches = chapter_branches(work.path, sub_cid)
             if branches:
-                # Chapters with work branches: mark on branch before commit
-                mark_review_required(
-                    settings,
-                    work,
-                    [sub_cid],
-                    code="previous_chapter_changed",
-                    detail=detail,
-                    branch_only=True,
-                )
+                branch_targets.append((sub_cid, detail))
             else:
-                # Chapters without work branches: include rewritten chapter.yaml in this commit
                 sub_meta = read_chapter_meta(work.path, sub_cid)
                 if sub_meta is None:
                     raise ChapterError(f"chapter.yaml not found for {sub_cid}")
-                if sub_cid not in written_chapter_yamls:
-                    written_chapter_yamls[sub_cid] = sub_meta
                 new_sub_meta = review_marked(sub_meta, "previous_chapter_changed", detail, at)
                 validate_or_raise(new_sub_meta, "chapter")
                 sem = check_chapter(new_sub_meta)
                 if sem:
                     raise ChapterError(f"Semantic error in chapter.yaml for {sub_cid}: {sem}")
-                write_yaml_atomic(work.path / f"chapters/{sub_cid}/chapter.yaml", new_sub_meta)
+
+                orig_chapter_yamls[sub_cid] = sub_meta
+                new_chapter_yamls[sub_cid] = new_sub_meta
 
             review_marked_cids.append(sub_cid)
 
-    # 6. Create single commit
+        # 5.4 Mark review required on subsequent chapters with work branches (after in-memory validation)
+        for sub_cid, detail in branch_targets:
+            mark_review_required(
+                settings,
+                work,
+                [sub_cid],
+                code="previous_chapter_changed",
+                detail=detail,
+                branch_only=True,
+            )
+
+    # 6. Write main's chapter.yamls and create single commit
     if note and note.strip():
         first_line = note.strip().splitlines()[0]
         subject = f"human edit ({kind}): {first_line}"
@@ -295,7 +301,12 @@ def direct_edit(
 
     trailers = [("NovUI-Edit", f"human-{kind}")]
 
+    written_cids: list[str] = []
     try:
+        for cid, meta in new_chapter_yamls.items():
+            write_yaml_atomic(work.path / f"chapters/{cid}/chapter.yaml", meta)
+            written_cids.append(cid)
+
         commit_hash = commit_all(
             work.path,
             subject,
@@ -306,10 +317,14 @@ def direct_edit(
         if commit_hash is None:
             raise ChapterError("nothing to commit")
     except Exception as exc:
-        # Revert written chapter.yamls on commit failure (leave human edits intact)
-        for cid, orig_meta in written_chapter_yamls.items():
-            write_yaml_atomic(work.path / f"chapters/{cid}/chapter.yaml", orig_meta)
+        # Revert written chapter.yamls on failure (leave human edits intact)
+        for cid in written_cids:
+            orig_meta = orig_chapter_yamls.get(cid)
+            if orig_meta is not None:
+                write_yaml_atomic(work.path / f"chapters/{cid}/chapter.yaml", orig_meta)
         run_git(work.path, "reset", "-q")
+        if isinstance(exc, ChapterError):
+            raise
         raise ChapterError(f"Failed to commit direct edit: {exc}") from exc
 
     # 7. Impact analysis
